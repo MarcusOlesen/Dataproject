@@ -1,4 +1,5 @@
-<h2 align="center">Simple Data Science Template Repository</h2>
+<h2 align="center">Data Project on The Effect of SARS-CoV-2 (COVID-19) Virus Infection
+on the Single-Cell Level</h2>
   <p align="center">
     Some short description about the project can go here.
   </p>
