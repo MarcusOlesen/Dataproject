@@ -35,6 +35,7 @@
 For the project discription check the PDF file titled:
 "The effect of SARS-CoV-2 (COVID-19) virus infection on the single-cell level"
 
+Something about the data and the Github_data.zip. Data from Cell paper can be found [here](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE158055)
 Here's an almost blank template to get started. You can use this template to create a new repository for your data science project. It includes a `README.md` template, a `LICENSE.txt` with the MIT License, a `data` folder, a `notebooks` folder, a `src` folder, a `models` folder, a `reports` folder, a `visualizations` folder, and a `.gitignore` file.
 
 The project does not include a `environment.yml` file for conda environment, or a `requirements.txt` file for pip environment, but you should highly consider using such files to keep track of your project dependencies. You can use the `conda env export > environment.yml` command to create a `environment.yml` file from your current conda environment, or the `pip freeze > requirements.txt` command to create a `requirements.txt` file from your current pip environment.
