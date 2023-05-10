@@ -1,6 +1,6 @@
 <h2 align="center">Data Project on The Effect of COVID-19 Virus Infection on the Single-Cell Level</h2>
   <p align="center">
-    As a 10 ECTS course on our 4th semester of Data Science, called "Data Project", we've gotten the chance to work with Molekylær Medicinsk Afdeling (MOMA) on the same data set as used in the CELL paper "COVID-19 immune features revealed by a large-scale single-cell transcriptome atlas" by Xianwen Ren et al. 2021.
+    As part of a 10 ECTS course, called "Data Project" (on our 4th semester of the Bachelor of Data Science), we've gotten the chance to work with Molekylær Medicinsk Afdeling (MOMA) on the same data set as used in the CELL paper "COVID-19 immune features revealed by a large-scale single-cell transcriptome atlas" by Xianwen Ren et al. 2021.
   </p>
 </div>
 
