@@ -77,7 +77,7 @@ Directory containing code regarding the following dimensionality reduction techn
 
 This folder contains code regarding t-distributed stochastic neighbor embedding (t-SNE). It contains the files:
 - t-SNE
-  - file1
+  - file1 (explain plz)
   - file2
 
 This folder contains code regarding principal component analysis (PCA). It contains the file(s):
@@ -90,17 +90,17 @@ This folder contains code regarding Uniform Manifold Approximation and Projectio
 ### Clustering
 
 Directory containing code regarding the following clustering techniques:
+
+This directory contains code regarding the k-means clustering algorithm. It contains the file(s):
 - K-means
+  - file 
 
-This folder contains:
-  - file
+This directory contains code regarding the hierarchical clustering algorithm. It contains the file(s):
 - Hierarchical
-
-This folder contains:
   - file
-- GMM
 
-This folder contains:
+This directory contains code regarding the Gaussian Mixture Models (GMM) clustering algorithm. It contains the file(s):
+- GMM
   - file
 ### scVI
 
