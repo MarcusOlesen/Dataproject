@@ -42,6 +42,20 @@ The project does not include a `environment.yml` file for conda environment, or 
 **Note:** The `.gitkeep` files are used to keep the empty folders in the repository. You can delete them if you want to, they are not necessary.
 
 
+<!-- Contents -->
+## Contents
+Here is the overview of the contents of this github:
+### DimReduction
+#### t-SNE
+#### PCA
+#### UMAP
+### Clustering
+#### K-means
+#### Hierarchical
+#### GMM
+### scVI
+### ARI
+
 <!-- GETTING STARTED -->
 ## Getting Started
 
