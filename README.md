@@ -74,18 +74,18 @@ This directory contains the code used to create the final pilot sets and other a
 ### DimReduction
 
 Directory containing code regarding the following dimensionality reduction techniques:
-- t-SNE
 
 This folder contains code regarding t-distributed stochastic neighbor embedding (t-SNE). It contains the files:
-- 
-  - file
-- PCA
+- t-SNE
+  - file1
+  - file2
 
 This folder contains code regarding principal component analysis (PCA). It contains the file(s):
+- PCA
   - file
-- UMAP
 
 This folder contains code regarding Uniform Manifold Approximation and Projection (UMAP). It contains the file(s):
+- UMAP
   - file
 ### Clustering
 
