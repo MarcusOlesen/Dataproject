@@ -66,7 +66,9 @@ The goal of this project is to apply, compare, and evaluate the usefulness of di
 The deliverables from the project would be visualizations that reveal infection status, cell type, and other interesting aspects of the data set.
 
 ### The Data
-Single cell (sc) atlas consisting of ~1,4 million cells from 284 samples originating from 196 patients and controls (Ren et al. 2021). The individual cells have been classified as infected or none-infected with SARS-CoV-2 and classified into cell types based on marker genes. The data set is thus extremely high dimensional (~20,000 genes/cell), large (1.46M cells), and richly structured (infection status, cell types, and patient characteristics).
+Single cell (sc) atlas consisting of ~1,4 million cells from 284 samples originating from 196 patients and controls (Ren et al. 2021). The individual cells have been sepperated into two datasets as infected or none-infected with SARS-CoV-2 and further classified into cell types based on marker genes. The data sets are thus extremely high dimensional (~20,000 genes/cell), large (1.46M cells), and richly structured (infection status, cell types, and patient characteristics).
+
+Note however that the there are only 3,085 cells infected with SARS-CoV-2 compared to the ~1,4 million healthy cells. And futhermore another challenge lies in the fact that the data containg the infected cell uses different annotation regarding classification of cells.
 
 <!-- Contents -->
 ## Contents
