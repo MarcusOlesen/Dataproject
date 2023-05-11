@@ -56,12 +56,17 @@
 For the project discription check the PDF file titled:
 "The effect of SARS-CoV-2 (COVID-19) virus infection on the single-cell level"
 
-Here's an almost blank template to get started. You can use this template to create a new repository for your data science project. It includes a `README.md` template, a `LICENSE.txt` with the MIT License, a `data` folder, a `notebooks` folder, a `src` folder, a `models` folder, a `reports` folder, a `visualizations` folder, and a `.gitignore` file.
+### Background
+Severe transcriptomic changes were found in SARS-CoV-2 infected cells, and we are interested in understanding the gene expression changes that occur when cells are infected by SARS-CoV-2, the virus causing COVID-19. The human genome harbors about 20,000 genes and their expression can now be measured at the single-cell level using single cell sequencing methods (e.g. 10x Genomics). This enables the elucidation of cell dependent alterations during an infection.
 
-The project does not include a `environment.yml` file for conda environment, or a `requirements.txt` file for pip environment, but you should highly consider using such files to keep track of your project dependencies. You can use the `conda env export > environment.yml` command to create a `environment.yml` file from your current conda environment, or the `pip freeze > requirements.txt` command to create a `requirements.txt` file from your current pip environment.
+### Aim
+The goal of this project is to apply, compare, and evaluate the usefulness of different unsupervised machine-learning techniques for studying the effect of SARS-CoV-2 on gene expression. Specifically, the aim is to apply and evaluate different dimensionality reduction techniques that allow visualization of the data. The methods included:
+- Standard, generic techniques, such as PCA, t-SNE, and UMAP.
+- Recently developed techniques such as variational-autoencoder-based methods (e.g., scVI (Lopez et al. 2018).
+The deliverables from the project would be visualizations that reveal infection status, cell type, and other interesting aspects of the data set.
 
-**Note:** The `.gitkeep` files are used to keep the empty folders in the repository. You can delete them if you want to, they are not necessary.
-
+### The Data
+Single cell (sc) atlas consisting of ~1,4 million cells from 284 samples originating from 196 patients and controls (Ren et al. 2021). The individual cells have been classified as infected or none-infected with SARS-CoV-2 and classified into cell types based on marker genes. The data set is thus extremely high dimensional (~20,000 genes/cell), large (1.46M cells), and richly structured (infection status, cell types, and patient characteristics).
 
 <!-- Contents -->
 ## Contents
