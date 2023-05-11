@@ -66,10 +66,10 @@ The project does not include a `environment.yml` file for conda environment, or 
 <!-- Contents -->
 ## Contents
 
-###### Here is the overview of the contents of this github:
+Here is the overview of the contents of this github:
 ### Data wrangling
 
-###### This directory contains the code used to create the final pilot sets and other aspects of working with the data. It contains the files:
+This directory contains the code used to create the final pilot sets and other aspects of working with the data. It contains the files:
 - 
 ### DimReduction
 
