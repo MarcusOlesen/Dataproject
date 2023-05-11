@@ -14,6 +14,24 @@
       <a href="#about-the-project">About The Project</a>
     </li>
     <li>
+      <a href="#Contents">Contents</a>
+      <ul>
+        <li><a href="#Data wrangling">Data wrangling</a></li>
+      </ul>
+      <ul>
+        <li><a href="#DimReduction">DimReduction</a></li>
+      </ul>
+      <ul>
+        <li><a href="#Clustering">Clustering</a></li>
+      </ul>
+      <ul>
+        <li><a href="#scVI">scVI</a></li>
+      </ul>
+      <ul>
+        <li><a href="#ARI">ARIPrerequisites</a></li>
+      </ul>
+    </li>
+    <li>
       <a href="#getting-started">Getting Started</a>
       <ul>
         <li><a href="#prerequisites">Prerequisites</a></li>
@@ -45,6 +63,7 @@ The project does not include a `environment.yml` file for conda environment, or 
 <!-- Contents -->
 ## Contents
 Here is the overview of the contents of this github:
+### Data wrangling
 ### DimReduction
 - t-SNE
 - PCA
@@ -55,7 +74,6 @@ Here is the overview of the contents of this github:
 - GMM
 ### scVI
 ### ARI
-### Data wrangling
 
 <!-- GETTING STARTED -->
 ## Getting Started
