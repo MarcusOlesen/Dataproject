@@ -46,15 +46,16 @@ The project does not include a `environment.yml` file for conda environment, or 
 ## Contents
 Here is the overview of the contents of this github:
 ### DimReduction
-#### t-SNE
-#### PCA
-#### UMAP
+- t-SNE
+- PCA
+- UMAP
 ### Clustering
-#### K-means
-#### Hierarchical
-#### GMM
+- K-means
+- Hierarchical
+- GMM
 ### scVI
 ### ARI
+### Data wrangling
 
 <!-- GETTING STARTED -->
 ## Getting Started
