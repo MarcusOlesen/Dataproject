@@ -80,8 +80,10 @@ Here is the overview of the contents of this github:
 ### Other files
 Files not yet mentioned are
 - `Github_data.zip`'
-Zipped AnnData object of our "pilot" set with less genes. For more information see `GithubData.RMD`
+- 
+Zipped AnnData object of our "pilot" set with less genes. For more information see `Data_4_Github.RMD` in the folder `Data wrangling`
 - `The effect of SARS-CoV-2 (COVID-19) virus infection on the single-cell level.pdf` 
+- 
 Project discription
 
 <!-- GETTING STARTED -->
