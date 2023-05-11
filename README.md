@@ -77,6 +77,7 @@ Directory containing code regarding the following dimensionality reduction techn
 - t-SNE
 
 This folder contains code regarding t-distributed stochastic neighbor embedding (t-SNE). It contains the files:
+- 
   - file
 - PCA
 
