@@ -28,7 +28,7 @@
         <li><a href="#scVI">scVI</a></li>
       </ul>
       <ul>
-        <li><a href="#ARI">ARIPrerequisites</a></li>
+        <li><a href="#ARI">ARI</a></li>
       </ul>
     </li>
     <li>
