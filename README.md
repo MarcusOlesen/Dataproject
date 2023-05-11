@@ -70,7 +70,7 @@ Here is the overview of the contents of this github:
 This directory contains the code
 ### DimReduction
 - t-SNE
--- haha
+  - nested
 - PCA
 - UMAP
 ### Clustering
