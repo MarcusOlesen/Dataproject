@@ -67,8 +67,10 @@ The project does not include a `environment.yml` file for conda environment, or 
 ## Contents
 Here is the overview of the contents of this github:
 ### Data wrangling
+This directory contains the code
 ### DimReduction
 - t-SNE
+-- haha
 - PCA
 - UMAP
 ### Clustering
