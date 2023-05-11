@@ -65,11 +65,14 @@ The project does not include a `environment.yml` file for conda environment, or 
 
 <!-- Contents -->
 ## Contents
+
 Here is the overview of the contents of this github:
 ### Data wrangling
+
 This directory contains the code used to create the final pilot sets and other aspects of working with the data. It contains the files:
 - 
 ### DimReduction
+
 Directory containing code regarding the following dimensionality reduction techniques:
 - t-SNE
 
@@ -84,6 +87,7 @@ This folder contains code regarding principal component analysis (PCA). It conta
 This folder contains code regarding Uniform Manifold Approximation and Projection (UMAP). It contains the file(s):
   - 
 ### Clustering
+
 Directory containing code regarding the following clustering techniques:
 - K-means
 
@@ -98,12 +102,15 @@ This folder contains:
 This folder contains:
   - 
 ### scVI
+
 Directory containing code regarding single-cell Variational Inference (scVI). It contains the file(s):
 - 
 ### ARI
+
 Directory containing code regarding Adjusted Rand Index. It contains the file(s):
 - 
 ### Other files
+
 Files not yet mentioned are
 - `Github_data.zip`
 
