@@ -66,52 +66,52 @@ The project does not include a `environment.yml` file for conda environment, or 
 <!-- Contents -->
 ## Contents
 
-Here is the overview of the contents of this github:
+###### Here is the overview of the contents of this github:
 ### Data wrangling
 
 ###### This directory contains the code used to create the final pilot sets and other aspects of working with the data. It contains the files:
 - 
 ### DimReduction
 
-Directory containing code regarding the following dimensionality reduction techniques:
+###### Directory containing code regarding the following dimensionality reduction techniques:
 - t-SNE
 
-This folder contains code regarding t-distributed stochastic neighbor embedding (t-SNE). It contains the files:
+###### This folder contains code regarding t-distributed stochastic neighbor embedding (t-SNE). It contains the files:
   - 
 - PCA
 
-This folder contains code regarding principal component analysis (PCA). It contains the file(s):
+###### This folder contains code regarding principal component analysis (PCA). It contains the file(s):
   - 
 - UMAP
 
-This folder contains code regarding Uniform Manifold Approximation and Projection (UMAP). It contains the file(s):
+###### This folder contains code regarding Uniform Manifold Approximation and Projection (UMAP). It contains the file(s):
   - 
 ### Clustering
 
-Directory containing code regarding the following clustering techniques:
+###### Directory containing code regarding the following clustering techniques:
 - K-means
 
-This folder contains:
+###### This folder contains:
   - 
 - Hierarchical
 
-This folder contains:
+###### This folder contains:
   - 
 - GMM
 
-This folder contains:
+###### This folder contains:
   - 
 ### scVI
 
-Directory containing code regarding single-cell Variational Inference (scVI). It contains the file(s):
+###### Directory containing code regarding single-cell Variational Inference (scVI). It contains the file(s):
 - 
 ### ARI
 
-Directory containing code regarding Adjusted Rand Index. It contains the file(s):
+###### Directory containing code regarding Adjusted Rand Index. It contains the file(s):
 - 
 ### Other files
 
-Files not yet mentioned are
+###### Files not yet mentioned are
 - `Github_data.zip`
 
 Zipped AnnData object of our "pilot" set with less genes. For more information see `Data_4_Github.RMD` in the folder `Data wrangling`.
