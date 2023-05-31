@@ -1,0 +1,378 @@
+---
+title: "Clean_data_subsetting"
+author: "Marcus"
+date: "May 30, 2023"
+output: 
+  html_document:
+    toc: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(eval = globalenv())
+```
+
+## Setup:
+```{r, message=FALSE,warning=FALSE}
+library(tidyverse)
+library(anndata)
+
+setwd("~/sc_covid_PiB2023/data_science_project/Code") # changing the working directory
+
+# Loading data with infected cells
+Infected <- read_h5ad("../../data/sc_covid/covid_19_virus.h5a")
+```
+
+```{r, eval = T}
+# Loading dthe large dataset with proper annotations:
+All_data <- read_h5ad("../../data/sc_covid/COVID19_ALL.h5ad") 
+# be patient it takes about 15 min to load with 128 G of RAM available
+```
+
+## Motivation for subsetting the data and (Note on a problem with our subsetting):
+Since the data is not only super high dimentional, ie. ~20,000 + genes, but also has 1.4 million cells/observations, we have to subset the data to get anything done within the timeframe of our project.
+
+
+Also since we have the chance to work with corona related data, we thought it would be interesting to look at the small amount of cells, ~3,000, where some amount of SARS-CoViD-2 mRNA was found (infected cells). And compare these to some healthy cells of the same composition (from the same patients and same celltypes).
+
+
+For these reasons we decided to make a subset for a testflight; or a pilot if you will.
+
+
+An error we found towards the end of this project was, that some of the cells in `covid_19_virus.h5a` were also in `COVID19_ALL.h5ad` (about 1,000), but had been named with a different barcode where an underscore had been used instead of a dash. This meant that in the pilot we ended up sampling some cells that were already included, leading to about 150 duplicates. We unfortunately did not have time to amend this error and rerun the code.
+
+<details>
+  <summary>Code illuminating the duplicates</summary>
+  
+#### Duplicates problem 
+```{r}
+# much later we found out that the barcodes are called differently between datasets:
+Infected$obs_names[1]
+All_data$obs_names[1]
+```
+
+One uses an underscore and one uses a dash.
+
+```{r}
+obs_names <- Infected$obs_names
+obs_names_sub <- c()
+obs_names_gsub <- c()
+for (i in obs_names){
+  #sub and gsub perform replacement of the first and all matches respectively.
+  obs_names_sub <- append(obs_names_sub, sub("_", "-", i)) 
+  obs_names_gsub <- append(obs_names_gsub, gsub("_", "-", i))
+}
+c(length(obs_names_sub), length(obs_names_gsub), length(Infected$obs_names))
+all(obs_names_sub==obs_names_gsub) # seem like there is only one underscore
+```
+
+```{r}
+idx_inf <-  which(All_data$obs_names %in% obs_names_gsub)
+length(idx_inf)
+```
+
+Only 1078 matches instead of the whole 3085
+</details>
+
+### Subsetting all data for same patients
+To eliminate any noise that could be caused by difference in biological makeup as much as possible, we want to sample healthy cells from the same patients that has the infected cells. To do this we subset the big dataset to only include these patients. 
+
+
+The unique patient IDs can be seen here:
+```{r}
+(patients_infc <- levels(Infected$obs$patients)) # all patients that has infected cells
+```
+
+We now find the indixes where PatientID is one of the patients with infected cells
+```{r}
+Idx_patients <- which(All_data$obs$PatientID %in% patients_infc)  
+
+# And we subset: 
+Not_All_data <- All_data[Idx_patients,]
+```
+
+Finally we check if we mistakenly included any other PatientIDs somehow:
+```{r}
+levels(Not_All_data$obs$PatientID) == patients_infc
+```
+
+Luckily all PatientIDs match. However there is another problem: The two datasets use a diffent annotation. In the big dataset there are 12 major celltypes as umbrella terms for `length(unique(All_data$celltype))` different celltypes. However in the "infected" data there is no annotation major type and instead only 8 celltypes.
+
+<details>
+  <summary>Overview of celltypes and major celltypes</summary>
+```{r}
+# different celltypes and amounts in the infected set
+summary(Infected$obs$cellType) 
+```
+
+```{r}
+# different celltypes and amounts in the non-infected set (on major type, since there are way to many celltypes)
+summary(Not_All_data$obs$majorType) 
+```
+
+</details>
+
+### Solution and indexing
+Since the annotation is different between `All_data` and `Infected` we will translate as follows:
+annotation in `Infected` = annotation in `All_data` on celltype/majortype (in `All_data$obs$`)
+
+
+Squamous  = Epi-Squamous      on celltype 
+
+Cilliated = Epi-Cilliated     on celltype
+
+Neutrophil = Neu              on majorType
+
+Macrophage = Macro            on majorType
+
+NK = NK                       on majorType
+
+Plasma = Plasma               on majorType
+
+Secretory = Epi-Secretory     on celltype
+
+T = CD4+CD8                   on majorType
+
+
+This translation is our best guess with the help of google and a few questions for our supervisor (ie. it could be prone to errors or misleading in some way).
+
+<details>
+  <summary>Finding indexes of "interesting" cells and sampling from them</summary>
+```{r}
+# finding these indices, 
+Idx_squ <- which(Not_All_data$obs$celltype == 'Epi-Squamous')  # majortype Epi
+Idx_cil <- which(Not_All_data$obs$celltype == 'Epi-Ciliated')  # majortype Epi
+Idx_sec <- which(Not_All_data$obs$celltype == 'Epi-Secretory') # majortype Epi
+Idx_neu <- which(Not_All_data$obs$majorType == 'Neu')
+Idx_NK <- which(Not_All_data$obs$majorType == 'NK')
+Idx_Macro <- which(Not_All_data$obs$majorType == 'Macro')
+Idx_Plas <- which(Not_All_data$obs$majorType == 'Plasma')
+Idx_T <- which(Not_All_data$obs$majorType %in% c('CD4', 'CD8'))
+
+# and sampling the largest amount of (idx of) cells (such that we have equal infected/non-infected). But we can't sample
+# more cells than those available so we sample the smallest between nr of healthy cells and nr of infected cells.
+squ <- sample(Idx_squ, min(length(Idx_squ), 68)) 
+cil <- sample(Idx_cil, min(length(Idx_cil), 433))
+sec <- sample(Idx_sec, min(length(Idx_sec), 565))
+neu <- sample(Idx_neu, min(length(Idx_neu), 370))
+NK  <- sample(Idx_NK, min(length(Idx_NK), 161))
+Macro <- sample(Idx_Macro, min(length(Idx_Macro), 1107))
+Plas  <- sample(Idx_Plas, min(length(Idx_Plas), 254))
+T_  <- sample(Idx_T, min(length(Idx_T), 127))
+
+# concatinating the indices and subsetting from the subsetted set
+Idx <- c(squ, cil, sec, neu, NK, Macro, Plas, T_)
+Non_infc_comp <- Not_All_data[Idx,]
+summary(Non_infc_comp$obs$majorType) # we see that it only contains the specified major types:
+```
+
+</details>
+
+
+We'll save this subset, if we ever need to use it again, since the sampling was random. Just to reiterate; this is the counterpart to the infected patients but with the healthy cells
+```{r}
+#write_h5ad(Non_infc_comp , '../Data/Non_infc_comp_same_patients.h5ad') 
+Non_infc <- read_h5ad('../Data/Non_infc_comp_same_patients.h5ad')
+```
+
+### Subsetting the infected cells
+For some of the celltypes there were not enough healthy cells to mach the infected ones. As seen here:
+```{r}
+c(dim(Infected$X), dim(Non_infc$X))
+```
+
+This leaves us with two options: We could drop the cells from infected that don't have a counterpart or keep it as is. We've chosen to drop some infected cells.
+
+```{r}
+c(min(length(Idx_squ), 68), min(length(Idx_cil), 433), min(length(Idx_sec), 565),
+  min(length(Idx_neu), 370), min(length(Idx_NK), 161), min(length(Idx_Macro), 1107), 
+  min(length(Idx_Plas), 254), min(length(Idx_T), 127))
+```
+
+From the above we see only ciliated is a problem:
+```{r}
+Idx_cil_infc <- which(Infected$obs$cellType == 'Ciliated')
+Idx_infc <- sample(Idx_cil_infc, 433-195) # we drop some randomly chosen infected ciliated cells 
+Infected_sub <- Infected[-Idx_infc,]
+```
+
+Now the dimensions (cellwise) are the same
+```{r}
+c(dim(Infected_sub$X), dim(Non_infc$X)) 
+```
+
+### Creating the expression matrix
+We need the expression matrices as matrix objects to work with them:
+```{r}
+X_inf <- as.matrix(Infected_sub$X)
+X_Non <- as.matrix(Non_infc$X)
+```
+
+The genes of the two expression matrices (columns) do not match so we find the ones both have in common: 
+```{r}
+Com_Col <-intersect(colnames(X_inf), colnames(X_Non))
+
+# and do a rowbind so it matches up
+X <- rbind(
+  subset(X_inf, select = Com_Col),
+  subset(X_Non, select = Com_Col)
+)
+X <- as.matrix(X)
+```
+
+### Creating annotations for the pilot
+In this section we create different usefull annotations to save in the anndata object.
+
+#### CellType 
+In this section we create a vector `cellType`, that has the cell type of each cell translated as shown in an ealier section: 
+<details>
+  <summary>Show code</summary>
+```{r}
+Nonmajortype <- list()
+
+for (i in 1:length(Non_infc$obs$majorType))
+  {
+  a <- Non_infc$obs$majorType[i]  
+  if (a == 'Epi'){ Nonmajortype <- append(Nonmajortype, Non_infc$obs$celltype[i])}
+  else{ Nonmajortype <- append(Nonmajortype, a)}
+}
+
+```
+
+```{r}
+Nonmajortype1 <- as.character(Nonmajortype)
+for (i in 1:length(Nonmajortype)){
+  if (Nonmajortype1[i] == 'Epi-Squamous'){Nonmajortype1[i] = 'Squamous'}
+  if (Nonmajortype1[i] == 'Epi-Ciliated'){Nonmajortype1[i] = 'Ciliated'}
+  if (Nonmajortype1[i] == 'Epi-Secretory'){Nonmajortype1[i] = 'Secretory'}
+  if (Nonmajortype1[i] == 'Macro'){Nonmajortype1[i] = 'Macrophage'}
+  if (Nonmajortype1[i] == 'Neu'){Nonmajortype1[i] = 'Neutrophil'}
+  if (Nonmajortype1[i] == 'CD4'){Nonmajortype1[i] = 'T'}
+  if (Nonmajortype1[i] == 'CD8'){Nonmajortype1[i] = 'T'}
+}
+unique(Nonmajortype1) 
+```
+
+```{r}
+cellType <- as.character(Infected_sub$obs$cellType)
+cellType <- c(cellType, Nonmajortype1)
+unique(cellType)
+```
+</details>
+
+#### Infection load
+In this section we make a vector that describes the viral load of each cell. A measure found in the expression matrix of the infected cells describing how much SARS-CoViD-2 mRNA was found in the cell (normalized)
+<details>
+  <summary>Show code</summary>
+```{r}
+length(Infected_sub$var_names)
+```
+
+```{r}
+Infected_sub$var_names[23559] # located in the last column of the expression matrix
+```
+
+```{r}
+virusLoad <-X_inf[,"virus"]
+names(virusLoad) <- c()
+```
+
+```{r}
+any(virusLoad <= 0)
+```
+
+```{r}
+zeros <- rep(0, length(virusLoad))
+virusLoad <- c(virusLoad, zeros)
+c(sum(virusLoad > 0), sum(virusLoad == 0))
+```
+</details>
+
+#### Patient_id and sample_id
+In this section i create other usefull annotations:
+<details>
+  <summary>Show code</summary>
+First for Patient ID:
+```{r}
+PatientID <- c(Infected_sub$obs$patients, Non_infc$obs$PatientID)
+sampleID <- c(Infected_sub$obs$samples, Non_infc$obs$sampleID)
+```
+
+```{r}
+c(length(PatientID),length(sampleID))
+```
+
+We'll also create a factor indicating infection (might be useful for clustering as opposed to the linear ViralLoad)
+```{r}
+Is_infected <- factor(c(rep(1, 2847), rep(0, 2847)))
+summary(Is_infected)
+```
+
+Furthermore we want to bring over the Age variable and others which are bound to PatientID:
+```{r}
+# we make some empty vectors:
+dict_sex <- c()
+dict_severity <- c() 
+dict_age <- c()
+
+# For each unique id
+for (person in unique(PatientID)){
+  id <- sample(which(Non_infc$obs$PatientID == person), 1) # we find a row belonging to that id
+  
+  
+  # and we pick out the annotation that we want:
+  dict_sex <- append(dict_sex, Non_infc[id]$obs$Sex)
+  dict_severity <- append(dict_severity, Non_infc[id]$obs$`CoVID-19 severity`)
+  dict_age <- append(dict_age, Non_infc[id]$obs$Age)
+}
+
+# We then assign the annotations with the appropriate ID
+names(dict_sex) <- unique(PatientID)
+names(dict_severity) <- unique(PatientID)
+names(dict_age) <- unique(PatientID)
+```
+
+```{r}
+# we then create the vectors that will hold all the values:
+Sex <- c()
+severity <- c()
+Age <- c()
+
+# and loop through each sample providing the right annotation:
+for (i in PatientID){
+  Sex <- append(Sex, dict_sex[i])
+  severity <- append(severity, dict_severity[i])
+  Age <- append(Age, dict_age[i])
+}
+```
+
+</details>
+
+### Saved as Anndata
+Finally we want to save the pilot set:
+```{r}
+ann <- AnnData(X) # we make an anndata object
+
+dim(ann$X)
+```
+
+```{r}
+# add the different annotations we just created:
+ann$obs$cellType  <- cellType
+ann$obs$viralLoad <- virusLoad
+ann$obs$PatientID <- PatientID
+ann$obs$sampleID  <- sampleID
+ann$obs$Is_infected <- Is_infected
+ann$obs$Age <- Age
+ann$obs$Sex <- Sex
+ann$obs$`CoVID-19 severity` <- severity
+```
+
+```{r, eval=FALSE}
+# and save it!
+#write_h5ad(ann, '../Data/Pilot_2_rule_them_ALL.h5ad')
+```
+
+
+This is how we created `Pilot_2_rule_them_ALL.h5ad` that we use in all the other markdowns. For more information about the data see Clean_summary_statistics.
+
