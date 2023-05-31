@@ -1,0 +1,811 @@
+---
+title: "Clean_PCA"
+author: "Marcus"
+date: "May 26, 2023"
+output: 
+  html_document:
+    toc: true
+    code_folding: show
+---
+
+## Introduction to PCA (Principle Component Analysis)
+PCA is a tool to represent high dimensional data in a lower dimension with as much information as possible. 
+PCA first finds the dimension that has the most variance which becomes the first principle component (PC), afterwards the orthogonal dimension with the most variance becomes the second PC and so on.
+Overall in a D-dimensional data set, there are D PC's, but with most packages, only the first 50 are given by default.
+
+Disclaimer: PCA assumes that variables are centered to have zero mean. It is also good idea for the variables to have standard deviation 1 before performing PCA.
+
+So the first Principle Component is found by:
+$$
+\begin{aligned}
+\max_{\phi_{11},...,\phi_{p1}} &\left \{ \frac{1}{n} \sum_{i=1}^n \left( \sum_{j=1}^p \phi_{j1} x_{ij} \right) \right\} \\
+\text{subject to:} \quad &\sum_{j=1}^p \phi_{j1}^2 = 1
+\end{aligned}
+$$
+where $n$ is the number of observations, $p$ is the number of features (dimensions), $\phi_{jm}$ is element $j$ of the loading vector for PC $m$, and $x_{ij}$ is feature (here gene) $j$ of observation $i$.
+
+### PCA Proportion of Variance Explained
+Each PC explains a proportion of the full variance in the data set, with the first PC explaining the most.
+The variance explained by the $m$th principal component is:
+$$
+PVE_m = \frac{1}{n} \sum_{i=1}^n z_{im}^2 = \frac{1}{n} \sum_{i=1}^n \left( \sum_{j=1}^p  \phi_{jm} x_{ij} \right)^2
+$$
+Visualizing these variance explained values in a plot will give a scree plot. A cumulative scree plot is great for visualizing how many PCs should be used for the wished proportion of variance explained.
+
+PCA is only a good dimension-reduction method for visualization, when the first 2 PC's account for most of the variation in the data.
+
+
+## Setup
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(anndata)
+library(Seurat)
+library(pdfCluster)
+
+# setting working directory and loading the pilot set
+setwd("~/sc_covid_PiB2023/data_science_project/Code")
+Pilot <- read_h5ad('../Data/Pilot_2_rule_them_ALL.h5ad') 
+# for more information on data see Clean_data_subsetting.Rmd or Clean_summary_statistics.Rmd
+```
+
+## Running PCA on the full pilotset
+
+We've chosen to use `RunPCA` from `Seurat`. We need the expression matrix as $cell \times genes$
+```{r}
+dim(Pilot$X)
+```
+
+If you see `Clean_Data_subsetting.Rmd` you can see this is the case with 5694 rows of cells and 23382 coloumns of genes.
+
+PCA is then run on the data:
+```{r, warning=FALSE, message=FALSE}
+PCA <- RunPCA(Pilot$X, assay = NULL, npcs = 50, rev.pca = F, weight.by.var = T, verbose = F)
+# Nice to know:
+# npcs = number of PCs (we use 50 because it was the default), 
+# rev.pca = do we have to do reverse pca? i.e. is the expression matrix genes x cells?
+# weight.by.var indicats whether we standerdise variance for the variables
+```
+
+### Annotate PCA to pilotset 
+Now that we've calculated the first 50 PCs we'll save it as metadata for the observations (for future use):
+```{r, eval=FALSE}
+Pilot$obsm$X_pca <-  PCA[]
+write_h5ad(Pilot, '../Data/Pilot_2_rule_them_ALL.h5ad')
+Pilot <- read_h5ad('../Data/Pilot_2_rule_them_ALL.h5ad')
+```
+
+### Making a dataframe to use with ggplots 
+Before we can plot this we need to convert it to a dataframe such that it is compatible with ggplot:
+```{r}
+df <- as.data.frame(PCA[]) # this could also be done with "Pilot$obsm$X_pca" for same result (other than column-names)
+
+# appending all annotations:
+df <- cbind(df,Pilot$obs)
+
+# See 51:58 for annotations
+#head(df[,1:58]) 
+```
+
+### Scree plots
+We can look a scree plots to find out how much of the variance in the data is explained by each PC:
+
+```{r}
+# PCA@stdev is standard diviation for each PC
+head(PCA@stdev)   # drops in value as expected (we see PC_1 has a LOT of the sd)
+```
+
+```{r}
+var <- PCA@stdev^2 # variance of each PC
+total_var <- sum(var) # total variance of all PC
+var_explained <- var/total_var # amount explained by each PC of the total
+cum_var <- cumsum(var_explained) # amount explained cumulatively
+
+# for visualization:
+scree <- cbind(PC = c(1:50), var, var_explained, cum_var)
+scree <- as.data.frame(scree)
+```
+
+Scree plot of varience explained per PC:
+```{r, warning=FALSE, message=FALSE}
+npcs = 10 # number of PCs to include in scree plot
+  qplot(c(1:npcs), var_explained[1:npcs]) + 
+  geom_line() + 
+  xlab("Principal Component") + 
+  ylab("Variance Explained") +
+  ggtitle("Scree Plot (contibution pr PC)") 
+```
+
+Scree plot of amount of varience explained cumulatively by adding each PC:
+```{r}
+npcs = 10 # number of PCs to include in scree plot
+qplot(c(1:npcs), cum_var[1:npcs]) + 
+  geom_line() + 
+  xlab("Principal Component") + 
+  ylab("Variance Explained") +
+  ggtitle("Scree Plot (cumulatively)") 
+```
+
+### We look at what genes are cause of all the varience in the first PC:
+Since the first principle component explains a majority of the varience it might be interesting to look at what genes are the most responsible for driving this:
+```{r}
+gene_loadings <- abs(as.array(PCA@cell.embeddings[,1]))
+largest_indices <- order(gene_loadings, decreasing = T)[1:5]
+gene_loadings[largest_indices]
+```
+
+Are five genes most responsible for driveing the first PC. B2M (Beta-2-Microglobulin) has been associated with SARS-CoV-2 and other infectious diseases.
+
+### Differet PCA plots
+In this section we will try to visualise how well the first 2 PCs capture the different annotations:
+
+#### Colored by cellType
+```{r}
+ggplot(df, aes(x = PC_1, y = PC_2, color = cellType)) +
+  geom_point(alpha = 0.8) +
+  ggtitle("PCA colored by cellType") +
+  xlab("Principal Component 1") + 
+  ylab("Principal Component 2")
+```
+
+We'll also test how well k-means clustering can identify some of the annotations. 
+For this we will however allow for multiple PCs to be used to give the best ARI score:
+```{r k-means}
+# initializing:
+k = length(unique(Pilot$obs$cellType)) # number of celltypes as k
+max_ARI = -1
+nr_PCs = 0
+
+for (i in 2:50){ # wwhere i is nr of included PCs to cluster on 
+  
+  cluster <- kmeans(PCA[,1:i], iter = 10000, nstart = 100, k, algorithm="MacQueen") # k-means 
+  #(we use MacQueen since it is more computationally viable and runs into fewer errors)
+  ARI = adj.rand.index(cluster$cluster, Pilot$obs$cellType) # ARI score
+  
+  if (ARI > max_ARI){ # if we find a top score we note it
+    max_ARI <- ARI
+    nr_PCs <- i
+    df$cluster <- factor(cluster$cluster)
+  }
+}
+
+# we then plot the best ARI and the  corresponding clustering:
+ggplot(df, aes(x=PC_1, y=PC_2, color=cluster)) +
+  geom_point() +
+  labs(title = "Kmeans on PCA", subtitle = "Clustered by celltype",
+       caption = paste("K =", k, " | PCS used =", nr_PCs, " | ARI =", round(max_ARI, 4),collapse=' '))
+```
+
+We do the same for hierarchical clustering:
+```{r hierarchical}
+k = length(unique(Pilot$obs$cellType)) # number of clusters
+max_ARI = -1
+nr_PCs = 0
+
+for (i in c(2,3,4,6,10,15,20,30,50)){ # if we runn through all PCs it takes to long, so I've chosen some (The best result is often within the first few PCs) 
+
+  for (m in c("complete", "single", "average", "centroid")){ # here we try all the different kinds of linkage
+
+    dm <- dist(as.data.frame(PCA[,1:i])) # Distance matrix
+    hc <- hclust(dm, method = m) # hierarchical clustering resulting in dendrogram
+    clusterCutS <- cutree(hc, k) # Clustering result based on (data, number of clusters)
+    ARI = adj.rand.index(clusterCutS, Pilot$obs$cellType)
+    
+    if (max_ARI< ARI) {
+      best_linkage = m
+      max_ARI = ARI
+      best_hc = hc
+      nr_PCs = i
+      df$cluster <- factor(clusterCutS)
+    }
+  }
+}
+
+# we plot the best ARI
+ggplot(df, aes(x=PC_1, y=PC_2, color=cluster)) +
+  geom_point() +
+  labs(title = "Hierarchical on PCA", subtitle = "Clustered by celltype",
+       caption = paste("K =", k, " | PCS used =", nr_PCs, 
+                       " | ARI =", round(max_ARI, 4), " | linkage =", m,collapse=' '))
+```
+
+#### Colored by infection status
+Repeat of the above but with infection status instead:
+```{r class.source = 'fold-hide'}
+df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = PC_1, y = PC_2, color = Is_infected)) +
+    geom_point(alpha = 0.3) +
+    scale_color_manual(values = c("0" = "blue", "1" = "red"))    +
+    ggtitle("PCA colored by infection status") +
+    xlab("Principal Component 1") + 
+    ylab("Principal Component 2")
+```
+
+```{r class.source = 'fold-hide'}
+# for more indepth comments see ealier chunk "k-means"
+
+k = 2 # infected or not as k ie k=2 
+max_ARI = -1
+nr_PCs = 0
+
+for (i in 2:50){
+  
+  cluster <- kmeans(PCA[,1:i], iter = 10000, nstart = 100, k, algorithm="MacQueen")
+  ARI = adj.rand.index(cluster$cluster, Pilot$obs$Is_infected)
+  if (ARI > max_ARI){
+    max_ARI <- ARI
+    nr_PCs <- i
+    df$cluster <- factor(cluster$cluster)
+  }
+}
+
+ggplot(df, aes(x=PC_1, y=PC_2, color=cluster)) +
+  geom_point() +
+  labs(title = "Kmeans on PCA", subtitle = "Clustered by infection",
+       caption = paste("K =", k, " | PCS used =", nr_PCs, " | ARI =", round(max_ARI, 4),collapse=' '))
+```
+
+```{r class.source = 'fold-hide'}
+# for more indepth comments see ealier chunk "hierarchical"
+
+k = 2
+max_ARI = -1
+nr_PCs = 0
+
+for (i in c(2,3,4,6,10,15,20,30,50)){ 
+
+  for (m in c("complete", "single", "average", "centroid")){
+
+    dm <- dist(as.data.frame(PCA[,1:i])) # Distance matrix
+    hc <- hclust(dm, method = m) # simple dendrogram
+    clusterCutS <- cutree(hc, k) # data, number of clusters
+    ARI = adj.rand.index(clusterCutS, Pilot$obs$Is_infected)
+    
+    if (max_ARI< ARI) {
+      best_linkage = m
+      max_ARI = ARI
+      best_hc = hc
+      nr_PCs = i
+      df$cluster <- factor(clusterCutS)
+    }
+  }
+}
+
+ggplot(df, aes(x=PC_1, y=PC_2, color=cluster)) +
+  geom_point() +
+  labs(title = "Hierarchical on PCA", subtitle = "Clustered by infection",
+       caption = paste("K =", k, " | PCS used =", nr_PCs, 
+                       " | ARI =", round(max_ARI, 4), " | linkage =", m,collapse=' '))
+```
+
+Not very good at identifying if cells are infected. This makes sense however since most of the differences between cells are probably due to difference in celltype.
+
+#### Colored by viral load
+We now take a look at viral load which is essentially the linear version of infection status, with a higher viral load corresponding to a higher level of infection of the cell. 
+```{r class.source = 'fold-hide'}
+df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = PC_1, y = PC_2, color = viralLoad)) +
+    geom_point(alpha = 0.5) +
+    scale_color_gradient(low = "blue", high = "red") +
+    ggtitle("PCA colored by viral load") +
+    xlab("Principal Component 1") + 
+    ylab("Principal Component 2")
+```
+Since this is a linear meassure we can't really use discrete clusterings.
+
+#### Colored by PatientID
+Repeat of Celltype and Infection status
+```{r class.source = 'fold-hide'}
+ggplot(df, aes(x = PC_1, y = PC_2, color = PatientID)) +
+  geom_point(alpha = 0.5) +
+  ggtitle("PCA colored by Patient") +
+  xlab("Principal Component 1") + 
+  ylab("Principal Component 2")
+```
+
+```{r class.source = 'fold-hide'}
+# for more indepth comments see ealier chunk "k-means"
+
+k = length(unique(Pilot$obs$PatientID)) # nr of patients as k
+max_ARI = -1
+nr_PCs = 0
+
+for (i in 2:50){
+  cluster <- kmeans(PCA[,1:i], iter = 10000, nstart = 100, k, algorithm="MacQueen")
+  ARI = adj.rand.index(cluster$cluster, Pilot$obs$PatientID)
+  
+  if (ARI > max_ARI){
+    max_ARI <- ARI
+    nr_PCs <- i
+    df$cluster <- factor(cluster$cluster)
+  }
+}
+
+ggplot(df, aes(x=PC_1, y=PC_2, color=cluster)) +
+  geom_point() +
+  labs(title = "Kmeans on PCA", subtitle = "Clustered by patient",
+       caption = paste("K =", k, " | PCS used =", nr_PCs, " | ARI =", round(max_ARI, 4),collapse=' '))
+```
+
+```{r class.source = 'fold-hide'}
+# for more indepth comments see ealier chunk "hierarchical"
+
+k = length(unique(Pilot$obs$PatientID)) 
+max_ARI = -1
+nr_PCs = 0
+
+for (i in c(2,3,4,6,10,15,20,30,50)){ 
+
+  for (m in c("complete", "single", "average", "centroid")){
+
+    dm <- dist(as.data.frame(PCA[,1:i])) # Distance matrix
+    hc <- hclust(dm, method = m) # simple dendrogram
+    clusterCutS <- cutree(hc, k) # data, number of clusters
+    ARI = adj.rand.index(clusterCutS, Pilot$obs$PatientID)
+    
+    if (max_ARI< ARI) {
+      best_linkage = m
+      max_ARI = ARI
+      best_hc = hc
+      nr_PCs = i
+      df$cluster <- factor(clusterCutS)
+    }
+  }
+}
+
+ggplot(df, aes(x=PC_1, y=PC_2, color=cluster)) +
+  geom_point() +
+  labs(title = "Hierarchical on PCA", subtitle = "Clustered by Patient",
+       caption = paste("K =", k, " | PCS used =", nr_PCs, 
+                       " | ARI =", round(max_ARI, 4), " | linkage =", m,collapse=' '))
+```
+
+#### Colored by sample id
+```{r class.source = 'fold-hide'}
+ggplot(df, aes(x = PC_1, y = PC_2, color = sampleID)) +
+  geom_point(alpha = 0.5) +
+  ggtitle("PCA colored by sample") +
+  xlab("Principal Component 1") + 
+  ylab("Principal Component 2")
+```
+
+```{r class.source = 'fold-hide'}
+# for more indepth comments see ealier chunk "k-means"
+
+k = length(unique(Pilot$obs$sampleID)) 
+max_ARI = -1
+nr_PCs = 0
+
+for (i in 2:50){
+  cluster <- kmeans(PCA[,1:i], iter = 10000, nstart = 100, k, algorithm="MacQueen")
+  ARI = adj.rand.index(cluster$cluster, Pilot$obs$sampleID)
+  
+  if (ARI > max_ARI){
+    max_ARI <- ARI
+    nr_PCs <- i
+    df$cluster <- factor(cluster$cluster)
+  }
+}
+
+ggplot(df, aes(x=PC_1, y=PC_2, color=cluster)) +
+  geom_point() +
+  labs(title = "Kmeans on PCA", subtitle = "Clustered by sample",
+       caption = paste("K =", k, " | PCS used =", nr_PCs, " | ARI =", round(max_ARI, 4),collapse=' '))
+```
+
+```{r class.source = 'fold-hide'}
+# for more indepth comments see ealier chunk "hierarchical"
+
+k = length(unique(Pilot$obs$sampleID)) 
+max_ARI = -1
+nr_PCs = 0
+
+for (i in c(2,3,4,6,10,15,20,30,50)){ 
+
+  for (m in c("complete", "single", "average", "centroid")){
+
+    dm <- dist(as.data.frame(PCA[,1:i])) # Distance matrix
+    hc <- hclust(dm, method = m) # simple dendrogram
+    clusterCutS <- cutree(hc, k) # data, number of clusters
+    ARI = adj.rand.index(clusterCutS, Pilot$obs$sampleID)
+    
+    if (max_ARI< ARI) {
+      best_linkage = m
+      max_ARI = ARI
+      best_hc = hc
+      nr_PCs = i
+      df$cluster <- factor(clusterCutS)
+    }
+  }
+}
+
+ggplot(df, aes(x=PC_1, y=PC_2, color=cluster)) +
+  geom_point() +
+  labs(title = "Hierarchical on PCA", subtitle = "Clustered by sample",
+       caption = paste("K =", k, " | PCS used =", nr_PCs, 
+                       " | ARI =", round(max_ARI, 4), " | linkage =", m,collapse=' '))
+```
+
+
+## PCA per celltype
+It may be more interesting to look at this for each celltype to see if infection is more identifiable when the difference between celltypes is out of the picture.
+
+In this loop we run PCA on each cohort of celltypes:
+<details>
+  <summary>Click to open the chunk</summary>
+```{r, warning=FALSE, message=FALSE}
+celltypes <- unique(Pilot$obs$cellType)
+
+df <- as.data.frame(Pilot$obs) # we create a dataframe to hold the cell embeddings 
+for (i in 1:50) { # this way it's easier to use ggplot and to run subsequent clustering
+  col_name <- paste0("PC_", i)
+  df[[col_name]] <- 0}
+
+genes <- c() # This is just a list for saving the 5 most responsible genes pr PC 1 and 2 pr Celltype
+
+for (c in celltypes){ # running PCA for each celltype
+
+  c_subset = Pilot[which(Pilot$obs$cellType == c)] # subset consisting only of celtype c
+  PCA <- RunPCA(c_subset$X, assay = NULL, npcs = 50, rev.pca = F, weight.by.var = T, verbose = F) # PCA on subset
+  
+  # saving the 5 most "important" genes for PC 1 and 2 pr celltype
+  gene_loadings_1 <- abs(as.array(PCA@cell.embeddings[,1]))
+  gene_loadings_2 <- abs(as.array(PCA@cell.embeddings[,2]))
+  
+  largest_indices_1 <- order(gene_loadings_1, decreasing = T)[1:5]
+  largest_indices_2 <- order(gene_loadings_2, decreasing = T)[1:5]
+
+  genes <- append(genes, c(
+    gene_loadings_1[largest_indices_1],
+    gene_loadings_2[largest_indices_2]
+    ))
+  
+  # saving the PCs. following few lines are failed attemts at doing this a smart way:
+  
+  #df <- df %>%
+  #mutate(across(starts_with("PC"), ~ ifelse(cellType == c, PCA[, as.numeric(gsub("PC_", "", cur_column()))], .)))
+  
+  #for (i in 1:50) {
+  #col_name <- paste0("PC_", i)
+  #df[df$cellType == c,][[col_name]] <- PCA[, i]}
+  
+  # Ended up "manually" putting it in since i've used wayyyy to much time trying to do it a "smart" way
+df[df$cellType == c,]$PC_1 <- PCA[, 1]
+df[df$cellType == c,]$PC_2 <- PCA[, 2]
+df[df$cellType == c,]$PC_3 <- PCA[, 3]
+df[df$cellType == c,]$PC_4 <- PCA[, 4]
+df[df$cellType == c,]$PC_5 <- PCA[, 5]
+df[df$cellType == c,]$PC_6 <- PCA[, 6]
+df[df$cellType == c,]$PC_7 <- PCA[, 7]
+df[df$cellType == c,]$PC_8 <- PCA[, 8]
+df[df$cellType == c,]$PC_9 <- PCA[, 9]
+df[df$cellType == c,]$PC_10 <- PCA[, 10]
+df[df$cellType == c,]$PC_11 <- PCA[, 11]
+df[df$cellType == c,]$PC_12 <- PCA[, 12]
+df[df$cellType == c,]$PC_13 <- PCA[, 13]
+df[df$cellType == c,]$PC_14 <- PCA[, 14]
+df[df$cellType == c,]$PC_15 <- PCA[, 15]
+df[df$cellType == c,]$PC_16 <- PCA[, 16]
+df[df$cellType == c,]$PC_17 <- PCA[, 17]
+df[df$cellType == c,]$PC_18 <- PCA[, 18]
+df[df$cellType == c,]$PC_19 <- PCA[, 19]
+df[df$cellType == c,]$PC_20 <- PCA[, 20]
+df[df$cellType == c,]$PC_21 <- PCA[, 21]
+df[df$cellType == c,]$PC_22 <- PCA[, 22]
+df[df$cellType == c,]$PC_23 <- PCA[, 23]
+df[df$cellType == c,]$PC_24 <- PCA[, 24]
+df[df$cellType == c,]$PC_25 <- PCA[, 25]
+df[df$cellType == c,]$PC_26 <- PCA[, 26]
+df[df$cellType == c,]$PC_27 <- PCA[, 27]
+df[df$cellType == c,]$PC_28 <- PCA[, 28]
+df[df$cellType == c,]$PC_29 <- PCA[, 29]
+df[df$cellType == c,]$PC_30 <- PCA[, 30]
+df[df$cellType == c,]$PC_31 <- PCA[, 31]
+df[df$cellType == c,]$PC_32 <- PCA[, 32]
+df[df$cellType == c,]$PC_33 <- PCA[, 33]
+df[df$cellType == c,]$PC_34 <- PCA[, 34]
+df[df$cellType == c,]$PC_35 <- PCA[, 35]
+df[df$cellType == c,]$PC_36 <- PCA[, 36]
+df[df$cellType == c,]$PC_37 <- PCA[, 37]
+df[df$cellType == c,]$PC_38 <- PCA[, 38]
+df[df$cellType == c,]$PC_39 <- PCA[, 39]
+df[df$cellType == c,]$PC_40 <- PCA[, 40]
+df[df$cellType == c,]$PC_41 <- PCA[, 41]
+df[df$cellType == c,]$PC_42 <- PCA[, 42]
+df[df$cellType == c,]$PC_43 <- PCA[, 43]
+df[df$cellType == c,]$PC_44 <- PCA[, 44]
+df[df$cellType == c,]$PC_45 <- PCA[, 45]
+df[df$cellType == c,]$PC_46 <- PCA[, 46]
+df[df$cellType == c,]$PC_47 <- PCA[, 47]
+df[df$cellType == c,]$PC_48 <- PCA[, 48]
+df[df$cellType == c,]$PC_49 <- PCA[, 49]
+df[df$cellType == c,]$PC_50 <- PCA[, 50]
+}
+```
+</details>
+
+<details>
+  <summary>Chunk with 5 most responsible genes pr PC 1 and 2 pr Celltype</summary>
+```{r, collapse=TRUE, comment="<!---"}
+a <- -4
+b <- 0
+for (c in celltypes){
+  a <- a+5
+  b <- b+5
+  print(paste(c, "PC_1:", sep = " "))
+  print(genes[a:b])
+  a <- a+5
+  b <- b+5
+  print(paste(c, "PC_2:", sep = " "))
+  print(genes[a:b])
+}
+```
+</details>
+
+#### Infection status:
+We now plot the infection status with each celltype as a facet of the plot:
+```{r}
+df %>%
+  arrange(viralLoad) %>%
+  ggplot(aes(x = PC_1, y = PC_2 , color = Is_infected)) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  scale_color_manual(values = c("0" = "blue", "1" = "red"))    +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "PCA cell type") +
+  xlab("PC_1") +
+  ylab("PC_2")
+```
+
+We'll now try to cluster just like we did previously. This time however we do it for each celltype.
+First using K-means:
+```{r k-means per celltype}
+df["cluster"] <- 0 # column indicating what cluster a cell belongs to based on whaterver clustering
+k = 2 # infected or not as k ie k=2 
+
+for (c in celltypes){ # for every celltype
+  # initialize some values
+  max_ARI = -1
+  nr_PCs = 0
+  c_subset = df[df$cellType == c,] # subsetting all celltypes c
+  
+  for (i in 2:50){ # for i amount of included PCs to cluster on 
+    cluster <- kmeans(c_subset[, 9:8+i], iter = 10000, nstart = 100, k, algorithm="MacQueen") # kmeans
+    ARI = adj.rand.index(cluster$cluster, c_subset$Is_infected) # ARI score
+    
+    if (ARI > max_ARI){ # if we find a new highscore we update 
+      max_ARI <- ARI
+      nr_PCs <- i
+      df[df$cellType == c,]$cluster <- factor(cluster$cluster)
+    }
+  }
+  # For every celltype we will note the best ARI and the number of PCs used: 
+  assign(paste("ARI", c, sep = "_"), max_ARI)
+  assign(paste("nr_PCs", c, sep = "_"), nr_PCs)
+}
+
+# We then create a dto display the afforementioed details
+f_labels <- data.frame(
+  celltypes = c("Ciliated", "Macrophage", "NK", "Neutrophil", "Plasma", "Secretory", "Squamous", "T"),
+  label = c(
+  paste("PCS used =", nr_PCs_Ciliated, " | ARI =", round(ARI_Ciliated, 4),collapse=' '),
+  paste("PCS used =", nr_PCs_Macrophage, " | ARI =", round(ARI_Macrophage, 4),collapse=' '),
+  paste("PCS used =", nr_PCs_NK, " | ARI =", round(ARI_NK, 4),collapse=' '),
+  paste("PCS used =", nr_PCs_Neutrophil, " | ARI =", round(ARI_Neutrophil, 4),collapse=' '),
+  paste("PCS used =", nr_PCs_Plasma, " | ARI =", round(ARI_Plasma, 4),collapse=' '),
+  paste("PCS used =", nr_PCs_Secretory, " | ARI =", round(ARI_Secretory, 4),collapse=' '),
+  paste("PCS used =", nr_PCs_Squamous, " | ARI =", round(ARI_Squamous, 4),collapse=' '),
+  paste("PCS used =", nr_PCs_T, " | ARI =", round(ARI_T, 4),collapse=' ')))
+
+# Finally we plot the best clustering results for each celltype
+ggplot(df, aes(x = PC_1, y = PC_2 , color = factor(cluster))) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "Kmeans on PCA pr cell type", subtitle = "k = 2") + 
+  xlab("PC_1") +
+  ylab("PC_2")
+
+# With the afforementioed details:
+f_labels
+```
+
+Then for hierarchical:
+```{r hierarchical per celltype}
+# same as the above but with a few differences
+
+df["cluster"] <- 0 # reseatting cluster coloumn
+for (c in celltypes){ 
+
+  c_subset = df[df$cellType == c,]
+  max_ARI = -1
+  nr_PCs = 0
+  
+  for (i in c(2,3,4,6,10,15,20,30,50)){ 
+    
+    o <- c_subset[, 9:(8+i)]
+    dm <- dist(o) # Distance matrix
+    hc <- hclust(dm, method = "centroid") # simple dendrogram. 
+    #(since all of the above ended up using "centroid" we'll omit the other options)
+    clusterCutS <- cutree(hc, k=2) # clustering results (data, number of clusters)
+    ARI = adj.rand.index(clusterCutS, c_subset$PatientID) #ARI score
+    
+    if (max_ARI< ARI) {
+      max_ARI = ARI
+      best_hc = hc
+      nr_PCs = i
+      df[df$cellType == c,]$cluster <- factor(clusterCutS)
+    }
+  }
+  assign(paste("ARI", c, sep = "_"), max_ARI)
+  assign(paste("nr_PCs", c, sep = "_"), nr_PCs)
+}
+
+f_labels <- data.frame(
+  celltypes = c("Ciliated", "Macrophage", "NK", "Neutrophil", "Plasma", "Secretory", "Squamous", "T"),
+  label = c(
+  paste("PCS used =", nr_PCs_Ciliated, " | ARI =", round(ARI_Ciliated, 4),collapse=' '),
+  paste("PCS used =", nr_PCs_Macrophage, " | ARI =", round(ARI_Macrophage, 4),collapse=' '),
+  paste("PCS used =", nr_PCs_NK, " | ARI =", round(ARI_NK, 4),collapse=' '),
+  paste("PCS used =", nr_PCs_Neutrophil, " | ARI =", round(ARI_Neutrophil, 4),collapse=' '),
+  paste("PCS used =", nr_PCs_Plasma, " | ARI =", round(ARI_Plasma, 4),collapse=' '),
+  paste("PCS used =", nr_PCs_Secretory, " | ARI =", round(ARI_Secretory, 4),collapse=' '),
+  paste("PCS used =", nr_PCs_Squamous, " | ARI =", round(ARI_Squamous, 4),collapse=' '),
+  paste("PCS used =", nr_PCs_T, " | ARI =", round(ARI_T, 4),collapse=' ')))
+
+# we plot the best ARI
+ggplot(df, aes(x = PC_1, y = PC_2 , color = factor(cluster))) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "Hierarchical on PCA", subtitle = "Clustered by infection; k = 2") + 
+  xlab("PC_1") +
+  ylab("PC_2")
+
+f_labels
+```
+
+
+#### Viral load per cell type:
+```{r class.source = 'fold-hide'}
+  df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = PC_1, y = PC_2 , color = viralLoad)) +
+  geom_point(size = 1.5, alpha = 0.7) +
+  scale_color_gradient(low = "blue", high = "red") +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "PCA cell type") + 
+  xlab("PC_1") +
+  ylab("PC_2") 
+```
+
+#### Patient ID per cell type:
+```{r class.source = 'fold-hide'}
+  df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = PC_1, y = PC_2 , color = PatientID)) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "PCA cell type") + 
+  xlab("PC_1") +
+  ylab("PC_2")
+```
+
+```{r class.source = 'fold-hide'}
+# for more indeapth comments see "kmeans per celltype"
+df["cluster"] <- 0
+for (c in celltypes){ 
+  max_ARI = -1
+  nr_PCs = 0
+  c_subset = df[df$cellType == c,]
+  k = length(unique(c_subset$PatientID))
+  
+  for (i in 2:50){
+    cluster <- kmeans(c_subset[, 9:8+i], iter = 10000, nstart = 100, k, algorithm="MacQueen")
+    ARI = adj.rand.index(cluster$cluster, c_subset$Is_infected)
+    if (ARI > max_ARI){
+      max_ARI <- ARI
+      nr_PCs <- i
+      df[df$cellType == c,]$cluster <- factor(cluster$cluster)
+    }
+  }
+  assign(paste("ARI", c, sep = "_"), max_ARI)
+  assign(paste("nr_PCs", c, sep = "_"), nr_PCs)
+  assign(paste("k", c, sep = "_"), k)
+}
+# Plot
+f_labels <- data.frame(
+  celltypes = c("Ciliated", "Macrophage", "NK", "Neutrophil", "Plasma", "Secretory", "Squamous", "T"),
+  label = c(
+  paste("k =", k_Ciliated," | PCS used =", nr_PCs_Ciliated, " | ARI =", signif(ARI_Ciliated, 4),collapse=' '),
+  paste("k =", k_Macrophage," | PCS used =", nr_PCs_Macrophage, " | ARI =", signif(ARI_Macrophage, 4),collapse=' '),
+  paste("k =", k_NK," | PCS used =", nr_PCs_NK, " | ARI =", signif(ARI_NK, 4),collapse=' '),
+  paste("k =", k_Neutrophil, " | PCS used =", nr_PCs_Neutrophil, " | ARI =", signif(ARI_Neutrophil, 4),collapse=' '),
+  paste("k =", k_Plasma, " | PCS used =", nr_PCs_Plasma, " | ARI =", signif(ARI_Plasma, 4),collapse=' '),
+  paste("k =", k_Secretory, " | PCS used =", nr_PCs_Secretory, " | ARI =", signif(ARI_Secretory, 4),collapse=' '),
+  paste("k =", k_Squamous, " | PCS used =", nr_PCs_Squamous, " | ARI =", signif(ARI_Squamous, 4),collapse=' '),
+  paste("k =", k_T, " | PCS used =", nr_PCs_T, " | ARI =", signif(ARI_T, 4),collapse=' ')))
+
+ggplot(df, aes(x = PC_1, y = PC_2 , color = factor(cluster))) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "K-means on PCA per cell type", subtitle = "Clustered by patient") + 
+  xlab("PC_1") +
+  ylab("PC_2")
+
+f_labels
+```
+
+```{r class.source = 'fold-hide'}
+# for more indeapth comments see chunk "hierarchical per celltype"
+
+df["cluster"] <- 0
+
+for (c in celltypes){ 
+
+  c_subset = df[df$cellType == c,]
+  max_ARI = -1
+  nr_PCs = 0
+  k = length(unique(c_subset$PatientID)) # some celltype does not contain cells from all patients
+  
+  for (i in c(2,3,4,6,10,15,20,30,50)){ 
+    o <- c_subset[, 9:(8+i)]
+    dm <- dist(o) # Distance matrix
+    hc <- hclust(dm, method = "centroid")
+    clusterCutS <- cutree(hc, k) 
+    ARI = adj.rand.index(clusterCutS, c_subset$PatientID)
+    
+    if (max_ARI< ARI) {
+      max_ARI = ARI
+      best_hc = hc
+      nr_PCs = i
+      df[df$cellType == c,]$cluster <- factor(clusterCutS)
+    }
+  }
+  assign(paste("ARI", c, sep = "_"), max_ARI)
+  assign(paste("nr_PCs", c, sep = "_"), nr_PCs)
+  assign(paste("k", c, sep = "_"), k)
+}
+
+f_labels <- data.frame(
+  celltypes = c("Ciliated", "Macrophage", "NK", "Neutrophil", "Plasma", "Secretory", "Squamous", "T"),
+  label = c(
+  paste("k =", k_Ciliated," | PCS used =", nr_PCs_Ciliated, " | ARI =", round(ARI_Ciliated, 4),collapse=' '),
+  paste("k =", k_Macrophage," | PCS used =", nr_PCs_Macrophage, " | ARI =", round(ARI_Macrophage, 4),collapse=' '),
+  paste("k =", k_NK," | PCS used =", nr_PCs_NK, " | ARI =", round(ARI_NK, 4),collapse=' '),
+  paste("k =", k_Neutrophil, " | PCS used =", nr_PCs_Neutrophil, " | ARI =", round(ARI_Neutrophil, 4),collapse=' '),
+  paste("k =", k_Plasma, " | PCS used =", nr_PCs_Plasma, " | ARI =", round(ARI_Plasma, 4),collapse=' '),
+  paste("k =", k_Secretory, " | PCS used =", nr_PCs_Secretory, " | ARI =", round(ARI_Secretory, 4),collapse=' '),
+  paste("k =", k_Squamous, " | PCS used =", nr_PCs_Squamous, " | ARI =", round(ARI_Squamous, 4),collapse=' '),
+  paste("k =", k_T, " | PCS used =", nr_PCs_T, " | ARI =", round(ARI_T, 4),collapse=' ')))
+
+
+ggplot(df, aes(x = PC_1, y = PC_2 , color = factor(cluster))) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "Hierarchical on PCA per cell type", subtitle = "Clustered by patient") + 
+  xlab("PC_1") +
+  ylab("PC_2")
+
+f_labels
+```
+
+
+And that's the essence of our data-exploration with PCA. For similar documents using other techniques see Clean_t-SNE, -UMAP, and -scVi. For information abut the data see Clean_summary_statistics or Clean_data_subsetting. For some more clustering see Clean_clustering.
+
