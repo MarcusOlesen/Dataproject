@@ -1,4 +1,4 @@
-<h2 align="center">Data Project on The Effect of COVID-19 Virus Infection on the Single-Cell Level</h2>
+<h2 align="center">Application and evaluation of different unsupervised machine-learning techniques on single cell data</h2>
   <p align="center">
     As part of a 10 ECTS course, called "Data Project" (on our 4th semester of the Bachelor of Data Science), we've gotten the chance to work with Molekylær Medicinsk Afdeling (MOMA) on the same data set as used in the CELL paper "COVID-19 immune features revealed by a large-scale single-cell transcriptome atlas" by Xianwen Ren et al. 2021.
   </p>
@@ -54,7 +54,7 @@
 ## About The Project
 
 For the project discription check the PDF file titled:
-"The effect of SARS-CoV-2 (COVID-19) virus infection on the single-cell level"
+"Application and evaluation of different unsupervised machine-learning techniques on single cell data"
 
 ### Background
 Severe transcriptomic changes were found in SARS-CoV-2 infected cells, and we are interested in understanding the gene expression changes that occur when cells are infected by SARS-CoV-2, the virus causing COVID-19. The human genome harbors about 20,000 genes and their expression can now be measured at the single-cell level using single cell sequencing methods (e.g. 10x Genomics). This enables the elucidation of cell dependent alterations during an infection.
@@ -124,7 +124,7 @@ Files not yet mentioned are
 - `Github_data.zip`
 
 Zipped AnnData object of our "pilot" set with less genes. For more information see `Data_4_Github.RMD` in the folder `Data wrangling`.
-- `The effect of SARS-CoV-2 (COVID-19) virus infection on the single-cell level.pdf` 
+- `Application and evaluation of different unsupervised machine-learning techniques on single cell data.pdf` 
 
 Project discription
 
