@@ -70,6 +70,7 @@ Single cell (sc) atlas consisting of ~1,4 million cells from 284 samples origina
 
 Note however that the there are only 3,085 cells infected with SARS-CoV-2 compared to the ~1,4 million healthy cells. And futhermore another challenge lies in the fact that the data containg the infected cell uses different annotation regarding classification of cells.
 
+The raw data can be found [here](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE158055)
 <!-- Contents -->
 ## Contents
 
