@@ -1,0 +1,337 @@
+---
+title: "Clean_summary_statistics"
+author: "Marcus"
+date: "May 30, 2023"
+output: 
+  html_document:
+    toc: TRUE
+    code_folding: show
+---
+
+The objective of this markdown is to give an overview of the big dataset `COVID19_ALL.h5ad` as well as the smaller "pilot" we have created. For detail on how the smaller dataset was created see `Clean_data_subsetting.Rmd`. 
+
+The data objects are AnnData objects. If you are confused about the structure see [this](https://anndata.readthedocs.io/en/latest/generated/anndata.AnnData.html#anndata.AnnData).
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#knitr::opts_chunk$set(cache = TRUE)
+#knitr::opts_chunk$set(eval = globalenv())
+```
+
+## Setup
+```{r shitty chunk, warning=F, message=F}
+library(tidyverse)
+library(anndata)
+setwd("~/sc_covid_PiB2023/data_science_project/Code") # changing the working directory
+pilot <- read_h5ad('../Data/Pilot_2_rule_them_ALL.h5ad')
+```
+
+```{r, shittier chunk}
+# Loading dthe large dataset
+All_data <- read_h5ad("../../data/sc_covid/COVID19_ALL.h5ad") 
+# be patient it takes about 15 min to load with 128 G of RAM available
+```
+
+We'll save the annotations in a dataframe to make it easier to work with ggplot:
+```{r}
+pilot_obs <- data.frame(pilot$obs)
+All_data_obs <- data.frame(All_data$obs)
+```
+
+## Dimensions 
+This is just to give an overview of the size of the expression matrix for both. It's $cell \times genes$:
+
+#### All_data:
+
+```{r}
+c(All_data$n_obs, All_data$n_vars)
+```
+
+1,462,702 cells and 27,943 genes
+
+#### Pilot:
+
+```{r}
+dim(pilot$X)
+```
+
+5,694 cells and  23,382 genes.
+
+## Annotations
+Overview of the annotations in both 
+
+#### All_data:
+
+```{r}
+colnames(All_data_obs)
+```
+
+#### Pilot:
+
+```{r}
+colnames(pilot_obs)
+```
+
+
+## Celltype / major type
+#### All_data:
+
+There are a lot of different celltypes in `All_data`
+```{r}
+length(unique(All_data$obs$celltype))
+```
+
+So it will not yeild a pretty plot. But we'll try anyway:
+```{r class.source = 'fold-hide', eval=F}
+ggplot(All_data_obs, aes(celltype, fill = celltype))+
+  geom_bar(stat = "count" ) + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 6),
+        legend.text = element_text(size = 5),  # Adjust the size parameter for legend text
+        legend.title = element_text(size = 7),  # Adjust the size parameter for the legend title
+        legend.key.size = unit(0.4, "cm"))
+```
+![Plot](Don'tDelete.png)
+
+The annotation `majorType` is much closer to `cellType` in the pilot.
+```{r class.source = 'fold-hide'}
+ggplot(All_data_obs, aes(majorType, fill = majorType))+
+  geom_bar(stat = "count" ) + 
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size = 3) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+#### Pilot:
+
+```{r class.source = 'fold-hide'}
+ggplot(pilot_obs, aes(cellType, fill = cellType))+
+  geom_bar(stat = "count" ) + 
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = +1.5) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+
+## Gender
+We'll also have to make a different dataframe such that everything related to the patient does not repeat over multiple rows
+```{r}
+# for All_data:
+All_data_df <- All_data_obs %>% 
+                select(c("PatientID","City","Age","Sex","CoVID.19.severity")) %>% 
+                unique()
+
+# for the pilot:
+pilot_df <- pilot_obs %>% 
+        select(c("PatientID", "Age", "Sex", "CoVID.19.severity")) %>% 
+        unique()
+```
+
+They made a mistake when creating the large dataset:
+```{r}
+All_data_df[All_data_df$PatientID=="P-M026",]
+```
+Somehow this woman with patient id P-M026 is simultaniously 32 and 62 years old
+
+#### All_data:
+
+```{r class.source = 'fold-hide'}
+ggplot(All_data_df, aes(Sex, fill = Sex))+
+  geom_bar(stat = "count" ) + 
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5)
+```
+
+
+#### Pilot:
+
+```{r class.source = 'fold-hide'}
+ggplot(pilot_df, aes(Sex, fill = Sex))+
+  geom_bar(stat = "count" ) + 
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = +2)
+```
+
+
+## Age
+
+#### All_data:
+
+```{r}
+All_ages <- as.numeric(as.character(All_data_df$Age[All_data_df$Age != "unknown"]))
+summary(All_ages)
+```
+
+
+```{r class.source = 'fold-hide'}
+as.data.frame(All_ages) %>% 
+  ggplot(aes(All_ages))+
+  xlab("Age")+
+  geom_bar()
+```
+
+
+#### Pilot
+```{r}
+pilot_ages <- as.numeric(as.character(pilot_df$Age))
+summary(pilot_ages)
+```
+
+```{r class.source = 'fold-hide'}
+as.data.frame(pilot_ages) %>% 
+ggplot(aes(pilot_ages))+
+  geom_bar(stat = "count" ) + 
+  xlab("Age")
+```
+
+
+## Severity
+
+#### All_data:
+
+```{r class.source = 'fold-hide'}
+ggplot(All_data_df, aes(CoVID.19.severity, fill = CoVID.19.severity))+
+  geom_bar(stat = "count" ) + 
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = 2)
+```
+
+#### Pilot:
+
+```{r}
+unique(pilot_df$CoVID.19.severity)
+```
+
+## Genes
+We have some potentially interesting genes from `Clean_PCA.Rmd` that were responsible for most of the varience; MALAT1,  B2M, MT-CO2, FTL, MT-CO1. 
+
+Furthermore it might be fun to look at the highest expressed genes (on average) as well as the genes that has the largest variance (we only do this for the pilot since the large dataset would take wayyyyy too long).
+We first find the most expressed genes and the genes with the most variance:
+```{r}
+AvExpression <- apply(pilot$X, 2, mean) # Compute average gene expression across cell types
+varExpression <- apply(pilot$X, 2, var) # Compute variance of expression of genes
+
+M = 3 # number of most expressed cells we want
+
+Av_genes <- names(AvExpression[order(AvExpression, decreasing = T)][1:M]) # Find M most expressed genes
+var_genes <- names(varExpression[order(varExpression, decreasing = T)][1:M]) # Find M most expressed genes(or varience)
+
+# Extract the expression matrix for the given genes as a dense matrix
+matrix_av <- as.data.frame(as.matrix(pilot[, (Av_genes)]$X)) %>% cbind(pilot$obs)
+matrix_var <- as.data.frame(as.matrix(pilot[, (var_genes)]$X))  %>% cbind(pilot$obs)
+```
+
+#### Most expressed:
+```{r}
+Av_genes
+```
+
+Boxplot showing the expression of a specified gene for all cells of each cell type (colored by viral load).
+```{r, warning=F, message=F}
+# "MALAT1"
+matrix_av %>% 
+  pivot_longer(cols = "MALAT1") %>%
+  ggplot(aes(x = cellType, y = value, col = viralLoad))+
+  scale_color_gradient(low='blue', high = 'red')+
+  geom_boxplot() + 
+  geom_jitter(alpha = 0.35, size = 0.4) + 
+  facet_wrap(~name)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        legend.position = "right") + 
+  labs(y = "Expression Count (Normalized)", x = "Cell Type")
+```
+
+```{r class.source = 'fold-hide', warning=F, message=F}
+# "B2M"
+matrix_av %>% 
+  pivot_longer(cols = "B2M") %>%
+  ggplot(aes(x = cellType, y = value, col = viralLoad))+
+  scale_color_gradient(low='blue', high = 'red')+
+  geom_boxplot() + 
+  geom_jitter(alpha = 0.35, size = 0.4) + 
+  facet_wrap(~name)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        legend.position = "right") + 
+  labs(y = "Expression Count (Normalized)", x = "Cell Type")
+```
+
+```{r class.source = 'fold-hide', warning=F, message=F}
+# "MT-CO2"
+matrix_av %>% 
+  pivot_longer(cols = "MT-CO2") %>%
+  ggplot(aes(x = cellType, y = value, col = viralLoad))+
+  scale_color_gradient(low='blue', high = 'red')+
+  geom_boxplot() + 
+  geom_jitter(alpha = 0.35, size = 0.4) + 
+  facet_wrap(~name)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        legend.position = "right") + 
+  labs(y = "Expression Count (Normalized)", x = "Cell Type")
+```
+
+#### Most variance:
+The same is done for the genes that have the most variance:
+```{r}
+var_genes
+```
+
+```{r, warning=F, message=F}
+#  "CCL2"
+matrix_var %>% 
+  pivot_longer(cols = "CCL2") %>%
+  ggplot(aes(x = cellType, y = value, col = viralLoad))+
+  scale_color_gradient(low='blue', high = 'red')+
+  geom_boxplot() + 
+  geom_jitter(alpha = 0.35, size = 0.4) + 
+  facet_wrap(~name)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        legend.position = "right") + 
+  labs(y = "Expression Count (Normalized)", x = "Cell Type")
+```
+
+```{r class.source = 'fold-hide', warning=F, message=F}
+# "SLPI"
+matrix_var %>% 
+  pivot_longer(cols = "SLPI") %>%
+  ggplot(aes(x = cellType, y = value, col = viralLoad))+
+  scale_color_gradient(low='blue', high = 'red')+
+  geom_boxplot() + 
+  geom_jitter(alpha = 0.35, size = 0.4) + 
+  facet_wrap(~name)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        legend.position = "right") + 
+  labs(y = "Expression Count (Normalized)", x = "Cell Type")
+```
+
+```{r class.source = 'fold-hide', warning=F, message=F}
+# "S100A8"
+matrix_var %>% 
+  pivot_longer(cols = "S100A8") %>%
+  ggplot(aes(x = cellType, y = value, col = viralLoad))+
+  scale_color_gradient(low='blue', high = 'red')+
+  geom_boxplot() + 
+  geom_jitter(alpha = 0.35, size = 0.4) + 
+  facet_wrap(~name)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        legend.position = "right") + 
+  labs(y = "Expression Count (Normalized)", x = "Cell Type")
+```
+
+### Heatmap
+A heatmap showing the expression of the $M$ most expressed genes (on average) for $M$ randomly sampled cells:
+```{r}
+M = 10 # amount of genes and cells
+
+AvExpression <- apply(pilot$X, 2, mean)
+MostExpressed <- names(AvExpression[order(AvExpression, decreasing = T)][1:M]) # Selecting the most expressed genes
+
+genes <- MostExpressed # Insert genes, you wish to heat map
+samples <- sample(1:5694, M)
+heatMapData <- as.data.frame(as.matrix(pilot[(samples), (genes)]$X)) # M x genes data frame is selected
+
+heatMapData %>% 
+  rownames_to_column() %>% 
+  gather(colname, value, -rowname) %>% 
+  ggplot(aes(y = rowname, x = colname, fill = value)) + 
+  geom_tile() + 
+  scale_fill_gradient(low = "yellow", high = "purple") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
+  labs(title = "Heatmap of Selected Gene Expression Values", subtitle = "For Random Sample") + 
+  xlab("Genes") + 
+  ylab("Sample ID")
+```
+
