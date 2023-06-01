@@ -12,39 +12,23 @@
   <ol>
     <li>
       <a href="#about-the-project">About The Project</a>
+      <ul>
+        <li><a href="#Background">Background</a></li>
+      </ul>
+      <ul>
+        <li><a href="#Aim">Aim</a></li>
+      </ul>
+      <ul>
+        <li><a href="#The Data">The Data</a></li>
+      </ul>
     </li>
     <li>
       <a href="#Contents">Contents</a>
       <ul>
-        <li><a href="#Data wrangling">Data wrangling</a></li>
+        <li><a href="#Files">Files</a></li>
       </ul>
       <ul>
-        <li><a href="#DimReduction">DimReduction</a></li>
-      </ul>
-      <ul>
-        <li><a href="#Clustering">Clustering</a></li>
-      </ul>
-      <ul>
-        <li><a href="#scVI">scVI</a></li>
-      </ul>
-      <ul>
-        <li><a href="#ARI">ARI</a></li>
-      </ul>
-      <ul>
-        <li><a href="#Other files">Other files</a></li>
-      </ul>
-    </li>
-    <li>
-      <a href="#getting-started">Getting Started</a>
-      <ul>
-        <li><a href="#prerequisites">Prerequisites</a></li>
-      </ul>
-    </li>
-    <li><a href="#usage">Usage</a></li>
-    <li><a href="#roadmap">Roadmap</a></li>
-    <li><a href="#license">License</a></li>
-    <li><a href="#contact">Contact</a></li>
-    <li><a href="#acknowledgments">Acknowledgements</a></li>
+        <li><a href="#Knitted markdowns">Knitted markdowns</a></li>
   </ol>
 </details>
 
@@ -75,129 +59,26 @@ The raw data can be found [here](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?
 ## Contents
 
 Here is the overview of the contents of this github:
-### Data wrangling
+### Files
+The repository contains the following files.
 
-This directory contains the code used to create the final pilot sets and other aspects of working with the data. It contains the files:
-- file
-### DimReduction
+- `data_subsetting.Rmd` 
+  - File containing the code used to create the final pilot set and other aspects of working with the data
+- `PCA.Rmd`
+  -  File containing code regarding principal component analysis (PCA)
+- `scVI.Rmd`
+  - File containing code regarding single-cell Variational Inference (scVI)  
+- `tSNE.Rmd`  
+  - File containing code regarding t-distributed stochastic neighbor embedding (t-SNE)
+- `UMAP.Rmd`
+  -  File containing code regarding Uniform Manifold Approximation and Projection (UMAP)
+- `Clustering.Rmd`
+  - File containing code regarding the k-means clustering algorithm and hierarchical clustering algorithm. Moreover visualizations and comparisons of the dimensional reduction methods used.    
 
-Directory containing code regarding the following dimensionality reduction techniques:
+### Knitted markdowns
 
-This folder contains code regarding t-distributed stochastic neighbor embedding (t-SNE). It contains the files:
-- t-SNE
-  - `file1` (explain plz)
-  - `file2`
-
-This folder contains code regarding principal component analysis (PCA). It contains the file(s):
-- PCA
-  - `file`
-
-This folder contains code regarding Uniform Manifold Approximation and Projection (UMAP). It contains the file(s):
-- UMAP
-  - `file`
-### Clustering
-
-Directory containing code regarding the following clustering techniques:
-
-This directory contains code regarding the k-means clustering algorithm. It contains the file(s):
-- K-means
-  - `file` 
-
-This directory contains code regarding the hierarchical clustering algorithm. It contains the file(s):
-- Hierarchical
-  - `file`
-
-This directory contains code regarding the Gaussian Mixture Models (GMM) clustering algorithm. It contains the file(s):
-- GMM
-  - `file`
-### scVI
-
-Directory containing code regarding single-cell Variational Inference (scVI). It contains the file(s):
-- `file`
-### ARI
-
-Directory containing code regarding Adjusted Rand Index. It contains the file(s):
-- `file`
-### Other files
-
-Files not yet mentioned are
-- `Github_data.zip`
-
-Zipped AnnData object of our "pilot" set with less genes. For more information see `Data_4_Github.RMD` in the folder `Data wrangling`.
-- `Application and evaluation of different unsupervised machine-learning techniques on single cell data.pdf` 
-
-Project discription
-
-<!-- GETTING STARTED -->
-## Getting Started
-
-This is an example of how you may give instructions on setting up your project locally.
-To get a local copy up and running follow these simple example steps.
-
-### Prerequisites
-
-This is an example of how to list things you need to use the software and how to install them.
-* install conda environment
-  ```sh
-  conda env create -f environment.yml
-  ```
-
-
-<!-- USAGE EXAMPLES -->
-## Usage
-
-This is an example of how to show ways of obtaining results from the project.
-
-1. Download data from [Kaggle](https://www.kaggle.com/).
-2. Run the data processing script
-   ```sh
-    python data_processing.py
-   ```
-3. Run the model training script
-   ```sh
-    python train.py
-   ```
-4. Run the model evaluation script
-   ```sh
-    python evaluate.py
-   ```
-5. Run the visualization script
-   ```sh
-    python visualize.py
-   ```
-_Alternatively, you can run the entire analysis in the notebook `notebooks/analysis.ipynb`._
+All the above mentioned files can be found as knitted html files in the directory `Knitted markdowns`. 
+We recommend looking at these files instead of the Rmd counterparts.
 
 
 
-<!-- ROADMAP -->
-## Roadmap
-
-- [ ] Feature 1
-- [ ] Feature 2
-- [ ] Feature 3
-    - [ ] Nested Feature
-
-
-
-<!-- LICENSE -->
-## License
-
-Distributed under the MIT License. See `LICENSE.txt` for more information.
-
-
-
-<!-- CONTACT -->
-## Contact
-
-Your Name - [@twitter_handle](https://twitter.com/twitter_handle) - email@email_client.com
-
-Project Link: [https://github.com/MarcusOlesen/Dataproject](https://github.com/MarcusOlesen/Dataproject)
-
-
-
-<!-- ACKNOWLEDGMENTS -->
-## Acknowledgements
-
-* []()
-* []()
-* []()
