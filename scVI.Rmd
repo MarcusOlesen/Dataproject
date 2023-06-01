@@ -1,0 +1,342 @@
+---
+title: "scVI"
+author: "Sofie2"
+date: "May 3, 2023"
+output:
+  html_document:
+    toc: true
+    theme: united
+---
+## Setup
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(Seurat)
+library(reticulate)
+library(tidyverse)
+library(anndata)
+use_python("/home/anna7393/miniconda3/envs/scVI_env/bin/python") # locate python and set path
+```
+
+```{r import data, warning=FALSE, message = FALSE}
+setwd("~/sc_covid_PiB2023/data_science_project/Data") # path to data folder
+dat <- read_h5ad("Pilot_2_rule_them_ALL.h5ad")
+```
+
+```{r import python packages, warning=FALSE, message=FALSE}
+sc <- import('scanpy', convert = FALSE) # import scanpy as python module (by reticulate)
+scvi <- import('scvi', convert = FALSE) # import scVI as python module (by reticulate)
+scvi$settings$progress_bar_style = 'tqdm' # Set up a loading bar when running scVI
+```
+
+
+## Selecting variable features
+In cases where the data consists of fewer cells (5694) than genes (23382) scVI is expected to underfit the data, potentially
+leading to worse imputation accuracy. For scVI anywhere from 1.000 to 10.000  highly variable genes are recommended, but it will be context dependent. For now we choose 2000 HVGs.
+
+To find HGVs we use the FindVariableFeatues function from the Seaurat package. 
+
+```{r create Seurat object}
+se_dat <- CreateSeuratObject(counts = t(dat$X)) # create Seurat object using expression matrix 
+```
+
+```{r find variable features}
+nbf = 3000 # number of variable features we wish to select 
+se_dat <- FindVariableFeatures(se_dat, selection.method = "vst", nfeatures = nbf) # find number of variable features
+```
+
+Plot variable features:
+```{r plot variable features}
+top10 <- head(VariableFeatures(se_dat), 10) # We select 10 highest variable features 
+topnbf <- head(VariableFeatures(se_dat), nbf) # select variable features (gene names) to use in scVI
+
+p1 <- VariableFeaturePlot(se_dat) # Create feature plot
+p2 <- LabelPoints(plot = p1, points = top10, repel = TRUE, xnudge = 0, ynudge = 0) # Overlay names of top 10 variable features
+
+p2 # show plot
+```
+
+```{r subset data}
+sub_feature_dat <- dat[,topnbf] # Subset anndata object by selected variable features
+```
+
+
+## Setup for training
+
+Create and train model. 
+
+It should be noted that scvi models require the raw counts, but will run for non-negative real-valued data. Possible non-count values should be intended to represent pseudocounts, and not other normalized data, in which variance/covariance structure of the data has changes dramatically. Here we use normalized data. 
+
+
+```{r model setup, warning = FALSE, error= FALSE}
+sub_feature_dat = sub_feature_dat$copy()
+
+# run setup_anndata
+scvi$model$SCVI$setup_anndata(sub_feature_dat)
+
+# create model
+model = scvi$model$SCVI(sub_feature_dat) 
+```
+
+```{r model traning, warning=FALSE, eval = FALSE}
+# train model
+model$train()
+
+# to specify the number of epochs when training:
+# model$train(max_epochs = as.integer(400))
+```
+
+Returns 10 dimensional latent space.
+
+
+## Visualize latent representation 
+
+Retrieve latent representation and visualize using UMAP and tSNE
+```{r latent representation, eval = FALSE}
+latent = model$get_latent_representation()
+latent <- data.matrix(latent)
+```
+
+The scVI latent space is saved onto the anndata object
+```{r save latent, warning=FALSE, eval = FALSE}
+dat$obsm$X_scVI <- latent # scVI latent space 
+write_h5ad(dat, '../Data/Pilot_2_rule_them_ALL.h5ad')
+```
+
+
+```{r run UMAP, warning=FALSE}
+latent_UMAP <- RunUMAP(dat$obsm$X_scVI, n.components = 2, min.dist = 0.5, n.neighbors = 70) # run UMAP
+```
+
+```{r run tSNE, warning=FALSE}
+latent_tSNE <- RunTSNE(dat$obsm$X_scVI, check_duplicates = TRUE, perplexity = 60, max_iter = 2000, theta = 0.2) # run tSNE
+```
+
+
+```{r create dataframe}
+latent_df <- as.data.frame(dat$obs) # add annotations to data frame
+
+latent_df$UMAP_1 <- latent_UMAP@cell.embeddings[,1] # add UMAP coordinates
+latent_df$UMAP_2 <- latent_UMAP@cell.embeddings[,2]
+
+latent_df$tSNE_1 <- latent_tSNE@cell.embeddings[,1] # add tSNE coordinates
+latent_df$tSNE_2 <- latent_tSNE@cell.embeddings[,2]
+```
+
+### UMAP visualizations
+
+cellType
+```{r visualize celltype}
+p_UMAP_celltype <- latent_df %>%
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = UMAP_1, y = UMAP_2, color = cellType)) + 
+  geom_point(alpha = 0.7) +
+  NULL
+
+p_UMAP_celltype
+```
+
+Viral Load
+```{r visualize viralload}
+latent_df %>%
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = UMAP_1, y = UMAP_2, color = viralLoad)) + 
+  geom_point(alpha = 0.7) +
+  scale_color_gradient(low="blue", high="red") + 
+  NULL
+```
+
+### tSNE visualizations
+
+Celltype 
+```{r}
+latent_df %>%
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = tSNE_1, y = tSNE_2, color = cellType)) + 
+  geom_point(alpha = 0.7) +
+  NULL
+```
+```{r}
+latent_df %>%
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = tSNE_1, y = tSNE_2, color = viralLoad)) + 
+  geom_point(alpha = 0.7) +
+  scale_color_gradient(low="blue", high="red") + 
+  NULL
+```
+
+## Batch correction 
+
+When setting up the model it is possible to register batches and the subsequent model will correct for batch effects.
+Here we wish to correct for patient batch effect.
+
+```{r model setup batch corrected, warning = FALSE}
+# run setup_anndata, use PatientID for batch
+scvi$model$SCVI$setup_anndata(sub_feature_dat, batch_key = "PatientID")
+
+model_c = scvi$model$SCVI(sub_feature_dat) # create model
+```
+
+```{r model traning batch corrected, warning=FALSE, eval = FALSE}
+# train model
+model_c$train()
+
+# to specify the number of epochs when training:
+# model$train(max_epochs = as.integer(400))
+```
+
+```{r latent representation bacth corrected, eval = FALSE}
+latent_c = model_c$get_latent_representation()
+latent_c <- data.matrix(latent_c)
+```
+
+The scVI latent space is saved onto the anndata object
+```{r save latent bacth corrected, warning=FALSE, eval=FALSE}
+dat$obsm$X_scVI_corrected <- latent_c
+# write_h5ad(dat, '../Data/Pilot_2_rule_them_ALL.h5ad')
+```
+
+```{r run UMAP batch corrected}
+cor_latent_UMAP <- RunUMAP(dat$obsm$X_scVI_corrected, n.components = 2, min.dist = 0.5, n.neighbors = 70)
+```
+
+```{r run tSNE batch corrected, warning=FALSE}
+cor_latent_tSNE <- RunTSNE(dat$obsm$X_scVI_corrected, check_duplicates = TRUE, perplexity = 60, max_iter = 2000, theta = 0.2)
+```
+
+```{r update dataframe batch corrected}
+latent_df$cor_UMAP_1 <- cor_latent_UMAP@cell.embeddings[,1] # add UMAP coordinates
+latent_df$cor_UMAP_2 <- cor_latent_UMAP@cell.embeddings[,2]
+
+latent_df$cor_tSNE_1 <- cor_latent_tSNE@cell.embeddings[,1] # add tSNE coordinates
+latent_df$cor_tSNE_2 <- cor_latent_tSNE@cell.embeddings[,2]
+```
+
+### UMAP visualizations
+
+We compare the dispersion of PatientID in the latent before and after batch correction:
+
+```{r UMAP patient corrected}
+non_corrected <- latent_df %>% 
+  ggplot(aes(x = UMAP_1, y = UMAP_2, color = PatientID)) + 
+  geom_point(show.legend = FALSE, alpha = 0.7) + 
+  ggtitle("Non-corrected")
+
+corrected <- latent_df %>% 
+  ggplot(aes(x = cor_UMAP_1, y = cor_UMAP_2, color = PatientID)) + 
+  geom_point(alpha = 0.7) + ggtitle("Patient effect corrected")
+  
+non_corrected + corrected 
+```
+
+Likewise we compare bact-corrected and non-batch corrected on celltype and viralload annotations to see if these structures are preserved and potentially have become more apparent in the latent space once patient batch effect is removed.
+
+```{r UMAP patient corrected on cellType}
+non_corrected <- latent_df %>% 
+  ggplot(aes(x = UMAP_1, y = UMAP_2, color = cellType)) + 
+  geom_point(show.legend = FALSE, alpha = 0.7) + 
+  ggtitle("Non-corrected")
+
+corrected <- latent_df %>% 
+  ggplot(aes(x = cor_UMAP_1, y = cor_UMAP_2, color = cellType)) + 
+  geom_point(alpha = 0.7) + 
+  ggtitle("Patient effect corrected")
+  
+non_corrected + corrected 
+```
+
+```{r UMAP patient corrected on viralLoad}
+non_corrected <- latent_df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = UMAP_1, y = UMAP_2, color = viralLoad)) + 
+  geom_point(show.legend = FALSE, alpha = 0.7) + 
+  ggtitle("Non-corrected")+
+  scale_color_gradient(low="blue", high="red")
+
+corrected <- latent_df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = cor_UMAP_1, y = cor_UMAP_2, color = viralLoad)) + 
+  geom_point(alpha = 0.7) + ggtitle("Patient effect corrected") +
+  scale_color_gradient(low="blue", high="red")
+  
+non_corrected + corrected 
+```
+
+
+### tSNE visualizations
+
+The same visualizations have been repeated with tSNE.
+```{r tSNE patient corrected}
+non_corrected <- latent_df %>% 
+  ggplot(aes(x = tSNE_1, y = tSNE_2, color = PatientID)) + 
+  geom_point(show.legend = FALSE, alpha = 0.7) + 
+  ggtitle("Non-corrected")
+
+corrected <- latent_df %>% 
+  ggplot(aes(x = cor_tSNE_1, y = cor_tSNE_2, color = PatientID)) + 
+  geom_point(alpha = 0.7) + ggtitle("Patient effect corrected")
+  
+non_corrected + corrected 
+```
+
+```{r tSNE patient corrected on cellType}
+non_corrected <- latent_df %>% 
+  ggplot(aes(x = tSNE_1, y = tSNE_2, color = cellType)) + 
+  geom_point(show.legend = FALSE, alpha = 0.7) + 
+  ggtitle("Non-corrected")
+
+corrected <- latent_df %>% 
+  ggplot(aes(x = cor_tSNE_1, y = cor_tSNE_2, color = cellType)) + 
+  geom_point(alpha = 0.7) + 
+  ggtitle("Patient effect corrected")
+  
+non_corrected + corrected 
+```
+
+```{r tSNE patient corrected on viralLoad}
+non_corrected <- latent_df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = tSNE_1, y = tSNE_2, color = viralLoad)) + 
+  geom_point(show.legend = FALSE, alpha = 0.7) + 
+  ggtitle("Non-corrected")+
+  scale_color_gradient(low="blue", high="red")
+
+corrected <- latent_df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = cor_tSNE_1, y = cor_tSNE_2, color = viralLoad)) + 
+  geom_point(alpha = 0.7) + ggtitle("Patient effect corrected") +
+  scale_color_gradient(low="blue", high="red")
+  
+non_corrected + corrected 
+```
+
+## Finding differentially expressed genes with scVI latent space
+
+An example use of scVI besides dimensionality reduction is for differential expression. 
+Many differential expression models often use linear assumptions which may not capture complex batch effects, whereas deep generative models may not suffer from these problems by using complex nonlinear mappings. 
+
+We demonstrate a simple example of computing differential expression for cell type using scVI: 
+
+```{r}
+DE <- model$differential_expression(sub_feature_dat, groupby = "cellType", batch_correction = FALSE)
+```
+
+```{r}
+print(DE$head())
+```
+
+It is also possible to use batch correction. Here we use batch corretion for patient. 
+```{r}
+DE <- model_c$differential_expression(sub_feature_dat, groupby = "cellType", batch_correction = TRUE)
+```
+
+```{r}
+print(DE$head())
+```
+
+
+## Session Info 
+```{r sessionInfo}
+sessionInfo()
+```
+
