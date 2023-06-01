@@ -68,7 +68,7 @@ The repository contains the following files.
   -  File containing code regarding principal component analysis (PCA)
 - `scVI.Rmd`
   - File containing code regarding single-cell Variational Inference (scVI)  
-- `tSNE.Rmd`  
+- `t-SNE.Rmd`  
   - File containing code regarding t-distributed stochastic neighbor embedding (t-SNE)
 - `UMAP.Rmd`
   -  File containing code regarding Uniform Manifold Approximation and Projection (UMAP)
