@@ -1,0 +1,768 @@
+---
+title: "UMAP"
+#author: "Elisa"
+date: "May 27, 2023"
+output: 
+  html_document:
+    toc: true
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction to UMAP (Uniform Manifold Approximation and Projection)
+UMAP is, like t-SNE, a dimensionality reduction technique used for visualizing and analyzing high-dimensional data. 
+UMAP computes pairwise distances between data points (usually Euclidean distance), constructs a graph representation, and optimizes a low-dimensional embedding that reflects the data structure using a student's t-distribution probability function.
+
+UMAP uses a number-of-nearest-neighbors parameter in the computation of similarity scores, which are then used in the embedding to reflect the data structure.
+The number-of-nearest-neighbors parameter is also the most impactful parameter to adjust.
+
+t-SNE and UMAP are quite similar methods.
+
+## Setup
+```{r, warning=FALSE, message = FALSE}
+library(tidyverse)
+library(Seurat)
+library(anndata)
+library(pdfCluster)
+library(gplots)
+```
+
+
+```{r load pilot set}
+setwd("~/sc_covid_PiB2023/data_science_project/Data")
+data <- read_h5ad("Pilot_2_rule_them_ALL.h5ad") # our pilot data
+```
+
+
+## First PCA, followed by UMAP
+In this section we run UMAP on the data on which PCA has been used to dimension reduced.
+
+### UMAP for every celletype
+We start by running it on the different cell types using 'RunUMAP' from the 'Seurat' package.
+Running UMAP on a cell type level allows for the comparison of infected and uninfected cells within each cell type.
+```{r class.source = 'fold-hide', warning=FALSE, message=FALSE}
+# Making a dataframe (used for plotting w. ggplots) with UMAP coordinates
+celltypes <- unique(data$obs$cellType)
+df <- as.data.frame(data$obs) %>%
+  add_column(UMAP_1 = 0) %>%
+  add_column(UMAP_2 = 0)
+
+for (c in celltypes) {
+  c_subset = data[which(data$obs$cellType == c)] # Subsetting based on celltype
+  PCA <-
+    RunPCA(
+      c_subset$X,
+      assay = NULL,
+      npcs = 50,
+      rev.pca = F,
+      weight.by.var = T,
+      verbose = F
+    )
+  c_cells_UMAP <- RunUMAP(
+    PCA[],
+    umap.method = "uwot",
+    assay = "RNA",
+    seed.use = 1,
+    verbose = F
+  )
+
+df[df$cellType == c, ]$UMAP_1 <- c_cells_UMAP[[, 1]]
+df[df$cellType == c, ]$UMAP_2 <- c_cells_UMAP[[, 2]]
+}
+```
+
+#### Infection status:
+Plot colored by infection status
+
+```{r class.source = 'fold-hide'}
+df %>%
+  arrange(viralLoad) %>%
+  ggplot(aes(x = UMAP_1, y = UMAP_2, color = Is_infected)) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  scale_color_manual(values = c("0" = "blue", "1" = "red"))    +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "UMAP cell type") +
+  xlab("UMAP_1") +
+  ylab("UMAP_2")
+```
+
+#### Viral load:
+Plot colored by viral load
+```{r class.source = 'fold-hide'}
+df %>%
+  arrange(viralLoad) %>%
+  ggplot(aes(x = UMAP_1, y = UMAP_2, color = viralLoad)) +
+  geom_point(size = 1.5, alpha = 0.7) +
+  scale_color_gradient(low = "blue", high = "red") +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "UMAP cell type") +
+  xlab("UMAP_1") +
+  ylab("UMAP_2")
+```
+
+#### Patient ID
+Plot colored by patient id
+
+```{r class.source = 'fold-hide'}
+df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = UMAP_1, y = UMAP_2, color = PatientID)) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "UMAP cell type") + 
+  xlab("UMAP_1") +
+  ylab("UMAP_2") +
+  theme(legend.position = "none")
+```
+
+### Clustering on cell type
+We try clustering for infection status on cell level.
+
+```{r class.source = 'fold-hide', warning=FALSE}
+
+celltypes <- unique(data$obs$cellType)
+
+matrix_of_ari <- matrix(1:48, nrow = 8, ncol = 6,
+                      dimnames = list(celltypes,
+                                      c("PCA_kmeans", "PCA_hier", "scVI_kmeans", "scVI_hier", "cor_kmeans", "cor_hier")))
+
+n_clusters = 2 # number of clusters
+
+df["kmeans"] <- 0
+df["hierarchical"] <- 0
+
+for (c in celltypes){ 
+  c_subset = df[df$cellType == c,]
+  max_ari = -1
+  
+# Kmeans:
+  cluster <- kmeans(c_subset[, 9:10], iter = 10000, nstart = 100, n_clusters) # kmeans clustering
+  matrix_of_ari[c, "PCA_kmeans"]  = adj.rand.index(cluster$cluster, c_subset$Is_infected) # ARI for kmeans clustering
+  df[df$cellType == c,]$kmeans <- factor(cluster$cluster)
+  
+# Hierarchical
+  for (m in c("complete", "single", "average", "centroid")){
+  dm <- dist(as.data.frame(c_subset[, 9:10])) # Distance matrix
+  hc <- hclust(dm, method = "centroid") # simple dendrogram
+  clusterCutS <- cutree(hc, n_clusters) # data, number of clusters
+  ari = adj.rand.index(clusterCutS, c_subset$Is_infected)
+  df[df$cellType == c,]$hierarchical <- factor(clusterCutS)
+  if (max_ari < ari) {
+      matrix_of_ari[c, "PCA_hier"] <- ari
+      max_ari = ari}
+  }}
+matrix_of_ari <- round(matrix_of_ari, 4)
+matrix_of_ari[,1:2]
+```
+
+#### Kmeans
+
+```{r class.source = 'fold-hide'}
+ggplot(df, aes(x = UMAP_1, y = UMAP_2 , color = factor(kmeans))) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "Kmeans on UMAP", subtitle = "Dimension reduction with PCA\nClustered by infection; k = 2") + 
+  xlab("UMAP_1") +
+  ylab("UMAP_2") +
+  theme(legend.position = "none")
+```
+
+#### Hierarchical
+
+```{r class.source = 'fold-hide'}
+ggplot(df, aes(x = UMAP_1, y = UMAP_2 , color = factor(hierarchical))) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "Hierarchical on UMAP", subtitle = "Dimension reduction with PCA\nClustered by infection; k = 2") + 
+  xlab("UMAP_1") +
+  ylab("UMAP_2") +
+  theme(legend.position = "none")
+```
+
+### Loop To Optimize Model Parameters with Adjusted Rand Index
+This loop-based approach utilizes the adjusted Rand index (ARI) as a measure to guide the search for the best parameter values. By systematically iterating through different combinations of parameters and evaluating their performance using the ARI, this approach helps identify the parameter values that yield the highest similarity between predicted and true labels. It saves the coordinates in the dataset to be used for clustering plots in 'Clean_Clustering'.
+
+```{r, eval = FALSE}
+dist_values <- c(0.15, 0.25, 0.5, 0.8, 0.99)
+near <- c(5, 10, 25, 50, 70, 100)
+
+n_clusters = 8 # number of clusters
+max_ARI_kmeans = 0
+max_ARI_hier = 0
+
+for (k in near) {
+  for (c in dist_values) {
+    umap_test <- RunUMAP(
+      as.matrix(data$obsm$X_pca),
+      umap.method = "uwot",
+      assay = "RNA",
+      seed.use = 1,
+      n.neighbors = k,
+      min.dist = c,
+      spread = 1
+      #verbose = TRUE
+      )
+  cluster <- kmeans(umap_test[[, 1:2]], iter = 10000, nstart = 100, n_clusters) # kmeans clustering
+  ARI_kmeans = adj.rand.index(cluster$cluster, data$obs$cellType) # ARI for kmeans clustering
+
+  if (max_ARI_kmeans < ARI_kmeans) {
+    max_ARI_kmeans = ARI_kmeans
+    best_kmeans <- umap_test}
+  
+  for (m in c("complete", "single", "average", "centroid")){
+    dm <- dist(as.data.frame(umap_test[[, 1:2]])) # Distance matrix
+    hc <- hclust(dm, method = m) # simple dendrogram
+    clusterCutS <- cutree(hc, n_clusters) # data, number of clusters
+    ARI_hier = adj.rand.index(clusterCutS, data$obs$cellType)
+    
+    if (max_ARI_hier < ARI_hier) {
+      max_ARI_hier = ARI_hier
+      best_hier <- umap_test}
+    }
+  }
+}
+# We save the coordinates that gives the highest ARI in the pilot set to plot the clusterings later.
+if (max_ARI_kmeans > max_ARI_hier) {
+  matrix_data <-
+    matrix(
+      data = c(best_kmeans[[, 1]], best_kmeans[[, 2]]),
+      nrow = length(best_kmeans[[, 1]]),
+      ncol = 2
+    )
+  data$obsm$X_PCA_UMAP <-  matrix_data
+  write_h5ad(data, '../Data/Pilot_2_rule_them_ALL.h5ad')
+} else {
+  matrix_data <-
+    matrix(
+      data = c(best_hier[[, 1]], best_hier[[, 2]]),
+      nrow = length(best_hier[[, 1]]),
+      ncol = 2
+    )
+  data$obsm$X_PCA_UMAP <-  matrix_data
+  write_h5ad(data, '../Data/Pilot_2_rule_them_ALL.h5ad')
+}
+head(data$obsm$X_PCA_UMAP)
+```
+
+
+## First scVI, followed by UMAP:
+In this section we run UMAP on the data on which scVI has been used to dimension reduced.
+
+### UMAP for every celletype
+We start by running it on the different cell types using 'RunUMAP' from the 'Seurat' package.
+Running UMAP on a cell type level allows for the comparison of infected and uninfected cells within each cell type.
+```{r class.source = 'fold-hide', warning=FALSE, message=FALSE}
+celltypes <- unique(data$obs$cellType)
+df <- as.data.frame(data$obs) %>% 
+  add_column(UMAP_1 = 0) %>% 
+  add_column(UMAP_2 = 0)
+
+for (c in celltypes){ 
+  
+  c_subset = data[which(data$obs$cellType == c)]
+  c_cells_UMAP <- RunUMAP(
+    c_subset$obsm$X_scVI,
+    umap.method = "uwot",
+    assay = "RNA",
+    seed.use = 1,
+    verbose = F
+  )
+
+df[df$cellType == c, ]$UMAP_1 <- c_cells_UMAP[[, 1]]
+df[df$cellType == c, ]$UMAP_2 <- c_cells_UMAP[[, 2]]
+}
+```
+
+#### Infection status:
+Plots colored by the infection status of each cell
+```{r class.source = 'fold-hide'}
+df %>%
+  arrange(viralLoad) %>%
+  ggplot(aes(x = UMAP_1, y = UMAP_2, color = Is_infected)) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  scale_color_manual(values = c("0" = "blue", "1" = "red"))    +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "UMAP cell type") +
+  xlab("UMAP_1") +
+  ylab("UMAP_2")
+```
+
+#### Viral load:
+Plots colored by the viral load of each cell
+```{r class.source = 'fold-hide'}
+df %>%
+  arrange(viralLoad) %>%
+  ggplot(aes(x = UMAP_1, y = UMAP_2, color = viralLoad)) +
+  geom_point(size = 1.5, alpha = 0.7) +
+  scale_color_gradient(low = "blue", high = "red") +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "UMAP cell type") +
+  xlab("UMAP_1") +
+  ylab("UMAP_2")
+```
+
+#### Patient ID
+Plots colored by patient id
+```{r class.source = 'fold-hide'}
+df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = UMAP_1, y = UMAP_2, color = PatientID)) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "UMAP cell type") + 
+  xlab("UMAP_1") +
+  ylab("UMAP_2") +
+  theme(legend.position = "none")
+```
+
+### Clustering for each celltype
+We try clustering for infection status on cell level.
+
+```{r, warning=FALSE, message=FALSE}
+
+celltypes <- unique(data$obs$cellType)
+
+n_clusters = 2 # number of clusters
+
+df["kmeans"] <- 0
+df["hierarchical"] <- 0
+
+for (c in celltypes){ 
+  c_subset = df[df$cellType == c,]
+  max_ari = -1
+  
+# Kmeans:
+  cluster <- kmeans(c_subset[, 9:10], iter = 10000, nstart = 100, n_clusters) # kmeans clustering
+  matrix_of_ari[c, "scVI_kmeans"] = adj.rand.index(cluster$cluster, c_subset$Is_infected) # ARI for kmeans clustering
+  df[df$cellType == c,]$kmeans <- factor(cluster$cluster)
+  
+# Hierarchical
+  for (m in c("complete", "single", "average", "centroid")){
+  dm <- dist(as.data.frame(c_subset[, 9:10])) # Distance matrix
+  hc <- hclust(dm, method = "centroid") # simple dendrogram
+  clusterCutS <- cutree(hc, n_clusters) # data, number of clusters
+  ari = adj.rand.index(clusterCutS, c_subset$Is_infected)
+  df[df$cellType == c,]$hierarchical <- factor(clusterCutS)
+  if (max_ari < ari) {
+      matrix_of_ari[c, "scVI_hier"] <- ari
+      max_ari = ari}
+  }}
+matrix_of_ari <- round(matrix_of_ari, 4)
+matrix_of_ari[,3:4]
+```
+
+#### Kmeans
+
+```{r class.source = 'fold-hide'}
+ggplot(df, aes(x = UMAP_1, y = UMAP_2 , color = factor(kmeans))) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "Kmeans on UMAP", subtitle = "Dimension reduction with scVI\nClustered by infection; k = 2") + 
+  xlab("UMAP_1") +
+  ylab("UMAP_2") +
+  theme(legend.position = "none")
+```
+
+#### Hierarchical
+
+```{r class.source = 'fold-hide'}
+ggplot(df, aes(x = UMAP_1, y = UMAP_2 , color = factor(hierarchical))) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "Hierarchical on UMAP", subtitle = "Dimension reduction with scVI\nClustered by infection; k = 2") + 
+  xlab("UMAP_1") +
+  ylab("UMAP_2") +
+  theme(legend.position = "none")
+```
+
+### Loop To Optimize Model Parameters with Adjusted Rand Index
+This loop-based approach utilizes the adjusted Rand index (ARI) as a measure to guide the search for the best parameter values. By systematically iterating through different combinations of parameters and evaluating their performance using the ARI, this approach helps identify the parameter values that yield the highest similarity between predicted and true labels. It saves the coordinates in the dataset to be used for clustering plots in 'Clean_Clustering'.
+
+```{r loop for umap parameters, message = FALSE, eval=FALSE}
+dist_values <- c(0.15, 0.25, 0.5, 0.8, 0.99)
+near <- c(5, 10, 25, 50, 70, 100)
+
+n_clusters = 8 # number of clusters
+max_ARI_kmeans = 0
+max_ARI_hier = 0
+
+for (k in near) {
+  for (c in dist_values) {
+    umap_test <- RunUMAP(
+      data$obsm$X_scVI,
+      umap.method = "uwot",
+      assay = "RNA",
+      seed.use = 1,
+      n.neighbors = k,
+      min.dist = c,
+      spread = 1
+      #verbose = TRUE
+      )
+  cluster <- kmeans(umap_test[[, 1:2]], iter = 10000, nstart = 100, n_clusters) # kmeans clustering
+  ARI_kmeans = adj.rand.index(cluster$cluster, data$obs$cellType) # ARI for kmeans clustering
+
+  if (max_ARI_kmeans < ARI_kmeans) {
+    max_ARI_kmeans = ARI_kmeans
+    kmeans_c = c
+    kmeans_k = k
+    best_kmeans <- umap_test}
+  
+  for (m in c("complete", "single", "average", "centroid")){
+    dm <- dist(as.data.frame(umap_test[[, 1:2]])) # Distance matrix
+    hc <- hclust(dm, method = m) # simple dendrogram
+    clusterCutS <- cutree(hc, n_clusters) # data, number of clusters
+    ARI_hier = adj.rand.index(clusterCutS, data$obs$cellType)
+    
+    if (max_ARI_hier < ARI_hier) {
+      best_linkage = m
+      max_ARI_hier = ARI_hier
+      hier_c = c
+      hier_k = k
+      best_hc = hc
+      best_hier <- umap_test}
+    }
+  }
+}
+# We save the coordinates that gives the highest ARI in the pilot set to plot the clusterings later.
+if (max_ARI_kmeans > max_ARI_hier) {
+  matrix_data <-
+    matrix(
+      data = c(best_kmeans[[, 1]], best_kmeans[[, 2]]),
+      nrow = length(best_kmeans[[, 1]]),
+      ncol = 2
+    )
+  data$obsm$X_scVI_UMAP <-  matrix_data
+  write_h5ad(data, '../Data/Pilot_2_rule_them_ALL.h5ad')
+} else {
+  matrix_data <-
+    matrix(
+      data = c(best_hier[[, 1]], best_hier[[, 2]]),
+      nrow = length(best_hier[[, 1]]),
+      ncol = 2
+    )
+  data$obsm$X_scVI_UMAP <-  matrix_data
+  write_h5ad(data, '../Data/Pilot_2_rule_them_ALL.h5ad')
+}
+```
+
+
+### Loop for heatmap purposes
+This loop explores various parameter combinations to find the optimal configuration for hierarchical clustering, based on the highest Adjusted Rand Index (ARI) score. The ARI scores are stored in a dataframe for creating a heatmap which offers a visual representation of the explored parameter space.
+
+```{r SUPER loop of only hierarchical clustering for heatmap purposes, warning=FALSE, message=FALSE}
+
+df_ari <- data.frame(matrix(nrow = 6, ncol = 5))
+
+dist_values <- c(0.15, 0.25, 0.5, 0.8, 0.99)
+near <- c(5, 10, 25, 50, 70, 100)
+
+colnames(df_ari) <- dist_values
+rownames(df_ari) <- near
+
+n_clusters = 8 # number of clusters
+
+for (i in 1:nrow(df_ari)) {
+  for (j in 1:ncol(df_ari)) {
+    umap_test <- RunUMAP(
+      data$obsm$X_scVI,
+      umap.method = "uwot",
+      assay = "RNA",
+      seed.use = 1,
+      n.neighbors = near[i],
+      min.dist = dist_values[j],
+      spread = 1,
+      verbose = FALSE
+      )
+  dm <- dist(as.data.frame(umap_test[[, 1:2]])) # Distance matrix
+  hc <- hclust(dm, method = "centroid") # simple dendrogram
+  clusterCutS <- cutree(hc, n_clusters) # data, number of clusters
+  ARI <- adj.rand.index(clusterCutS, data$obs$cellType)
+  df_ari[i, j] <- round(ARI, 4)
+  }
+}
+```
+
+#### Heatmap of ARI scores
+The heatmap displays the ARI value of differnet combinations of parameters. The best score is marked with a blue border.
+
+```{r class.source = 'fold-hide', warning=FALSE}
+ari_matrix <- as.matrix(df_ari)
+
+# Find the maximum value and its coordinates
+max_coords <- as.vector(which(ari_matrix == max(ari_matrix), arr.ind = TRUE))
+
+
+
+# Function to mark the max value
+makeRects <- function(cells){
+  xl=cells[2]-0.49
+  yb=nrow(ari_matrix)+1-cells[1]-0.49
+  xr=cells[2]+0.49
+  yt=nrow(ari_matrix)+1-cells[1]+0.49
+  rect(xl,yb,xr,yt,border="blue",lwd=3)
+}
+
+
+heatmap.2(
+  ari_matrix,
+  Colv = NA,
+  Rowv = NA,
+  dendrogram = "none",
+  trace = "none",
+  xlab = "min.dist",
+  ylab = "n.neigbours",
+  main = "Heatmap of ARI",
+  notecol = "black",
+  key = TRUE,
+  cellnote = df_ari,
+  add.expr = {makeRects(max_coords)})
+
+```
+
+
+## First scVI that has been batch corrected, followed by UMAP:
+In this section we run UMAP on the data on which scVI with batch corrections has been used to dimension reduced.
+The idea is that by applying batch correction with scVI, it becomes easier to identify and characterize cell types more accurately, enhancing downstream analyses such as clustering. By correcting we might also enhance the ability to discern true biological differences from technical impressions.
+
+### UMAP for every cell type
+We start by running it on the different cell types using 'RunUMAP' from the 'Seurat' package.
+Running UMAP on a cell type level allows for the comparison of infected and uninfected cells within each cell type.
+```{r class.source = 'fold-hide', warning=FALSE, message=FALSE}
+celltypes <- unique(data$obs$cellType)
+df <- as.data.frame(data$obs) %>% 
+  add_column(UMAP_1 = 0) %>% 
+  add_column(UMAP_2 = 0)
+
+for (c in celltypes){ 
+  
+  c_subset = data[which(data$obs$cellType == c)]
+  c_cells_UMAP <- RunUMAP(
+    c_subset$obsm$X_scVI_corrected,
+    umap.method = "uwot",
+    assay = "RNA",
+    seed.use = 1,
+    verbose = F
+  )
+
+df[df$cellType == c, ]$UMAP_1 <- c_cells_UMAP[[, 1]]
+df[df$cellType == c, ]$UMAP_2 <- c_cells_UMAP[[, 2]]
+}
+```
+
+#### Infection status:
+Plots colored by the infection status of each cell
+```{r class.source = 'fold-hide'}
+df %>%
+  arrange(viralLoad) %>%
+  ggplot(aes(x = UMAP_1, y = UMAP_2, color = Is_infected)) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  scale_color_manual(values = c("0" = "blue", "1" = "red"))    +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "UMAP cell type") +
+  xlab("UMAP_1") +
+  ylab("UMAP_2")
+```
+
+#### Viral load:
+Plots colored by the viral load of each cell
+```{r class.source = 'fold-hide'}
+df %>%
+  arrange(viralLoad) %>%
+  ggplot(aes(x = UMAP_1, y = UMAP_2, color = viralLoad)) +
+  geom_point(size = 1.5, alpha = 0.7) +
+  scale_color_gradient(low = "blue", high = "red") +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "UMAP cell type") +
+  xlab("UMAP_1") +
+  ylab("UMAP_2")
+```
+
+#### Patient ID
+Plots colored by patient id
+```{r class.source = 'fold-hide'}
+df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = UMAP_1, y = UMAP_2, color = PatientID)) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "UMAP cell type") + 
+  xlab("UMAP_1") +
+  ylab("UMAP_2") +
+  theme(legend.position = "none")
+```
+
+### Clustering for each celltype
+To run this loop one must have already run the 'tSNE for every cell type' chunk
+
+```{r, warning=FALSE, message=FALSE}
+
+celltypes <- unique(data$obs$cellType)
+
+n_clusters = 2 # number of clusters
+
+df["kmeans"] <- 0
+df["hierarchical"] <- 0
+
+for (c in celltypes){ 
+  c_subset = df[df$cellType == c,]
+  max_ari=-1
+  
+# Kmeans:
+  cluster <- kmeans(c_subset[, 9:10], iter = 10000, nstart = 100, n_clusters) # kmeans clustering
+  matrix_of_ari[c, "cor_kmeans"] = adj.rand.index(cluster$cluster, c_subset$Is_infected) # ARI for kmeans clustering
+  df[df$cellType == c,]$kmeans <- factor(cluster$cluster)
+  
+# Hierarchical
+  for (m in c("complete", "single", "average", "centroid")){
+  dm <- dist(as.data.frame(c_subset[, 9:10])) # Distance matrix
+  hc <- hclust(dm, method = "centroid") # simple dendrogram
+  clusterCutS <- cutree(hc, n_clusters) # data, number of clusters
+  ari = adj.rand.index(clusterCutS, c_subset$Is_infected)
+  df[df$cellType == c,]$hierarchical <- factor(clusterCutS)
+  if (max_ari < ari) {
+      matrix_of_ari[c, "cor_hier"] <- ari
+      max_ari = ari}
+  }}
+matrix_of_ari <- round(matrix_of_ari, 4)
+matrix_of_ari[,5:6]
+
+```
+
+#### Kmeans
+
+```{r class.source = 'fold-hide'}
+ggplot(df, aes(x = UMAP_1, y = UMAP_2 , color = factor(kmeans))) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "Kmeans on UMAP", subtitle = "Dimension reduction with scVI with batch correction\nClustered by infection; k = 2") + 
+  xlab("UMAP_1") +
+  ylab("UMAP_2") +
+  theme(legend.position = "none")
+```
+
+#### Hierarchical
+
+```{r class.source = 'fold-hide'}
+ggplot(df, aes(x = UMAP_1, y = UMAP_2 , color = factor(hierarchical))) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "Hierarchical on UMAP", subtitle = "Dimension reduction with scVI with batch correction\nClustered by infection; k = 2") + 
+  xlab("UMAP_1") +
+  ylab("UMAP_2") +
+  theme(legend.position = "none")
+```
+
+A heatmap displaying the ARI score of each combination of dimention reduction methods and clustering method with the different celltypes.
+
+```{r class.source = 'fold-hide'}
+heatmap.2(
+  matrix_of_ari,
+  Colv = NA,
+  Rowv = NA,
+  dendrogram = "none",
+  cexRow=0.8,
+  cexCol = 0.8,
+  trace = "none",
+  main = "ARI with different methods",
+  #col = colorRampPalette(c("white", "blue")), 
+  notecol = "black",
+  key = TRUE,
+  cellnote = matrix_of_ari)
+```
+
+### Loop To Optimize Model Parameters with Adjusted Rand Index
+This loop-based approach utilizes the adjusted Rand index (ARI) as a measure to guide the search for the best parameter values. By systematically iterating through different combinations of parameters and evaluating their performance using the ARI, this approach helps identify the parameter values that yield the highest similarity between predicted and true labels. It saves the coordinates in the dataset to be used for clustering plots in 'Clean_Clustering'.
+
+```{r, eval = FALSE}
+dist_values <- c(0.15, 0.25, 0.5, 0.8, 0.99)
+near <- c(5, 10, 25, 50, 70, 100)
+
+n_clusters = 8 # number of clusters
+max_ARI_kmeans = 0
+max_ARI_hier = 0
+
+for (k in near) {
+  for (c in dist_values) {
+    umap_test <- RunUMAP(
+      data$obsm$X_scVI_corrected ,
+      umap.method = "uwot",
+      assay = "RNA",
+      seed.use = 1,
+      n.neighbors = k,
+      min.dist = c,
+      spread = 1
+      #verbose = TRUE
+      )
+  cluster <- kmeans(umap_test[[, 1:2]], iter = 10000, nstart = 100, n_clusters) # kmeans clustering
+  ARI_kmeans = adj.rand.index(cluster$cluster, data$obs$cellType) # ARI for kmeans clustering
+
+  if (max_ARI_kmeans < ARI_kmeans) {
+    max_ARI_kmeans = ARI_kmeans
+    best_kmeans <- umap_test}
+  
+  for (m in c("complete", "single", "average", "centroid")){
+    dm <- dist(as.data.frame(umap_test[[, 1:2]])) # Distance matrix
+    hc <- hclust(dm, method = m) # simple dendrogram
+    clusterCutS <- cutree(hc, n_clusters) # data, number of clusters
+    ARI_hier = adj.rand.index(clusterCutS, data$obs$cellType)
+    
+    if (max_ARI_hier < ARI_hier) {
+      max_ARI_hier = ARI_hier
+      best_hier <- umap_test}
+    }
+  }
+}
+# We save the coordinates that gives the highest ARI in the pilot set to plot the clusterings later.
+if (max_ARI_kmeans > max_ARI_hier) {
+  matrix_data <-
+    matrix(
+      data = c(best_kmeans[[, 1]], best_kmeans[[, 2]]),
+      nrow = length(best_kmeans[[, 1]]),
+      ncol = 2
+    )
+  data$obsm$X_scVI_corrected_UMAP <-  matrix_data
+  write_h5ad(data, '../Data/Pilot_2_rule_them_ALL.h5ad')
+} else {
+  matrix_data <-
+    matrix(
+      data = c(best_hier[[, 1]], best_hier[[, 2]]),
+      nrow = length(best_hier[[, 1]]),
+      ncol = 2
+    )
+  data$obsm$X_scVI_corrected_UMAP <-  matrix_data
+  write_h5ad(data, '../Data/Pilot_2_rule_them_ALL.h5ad')
+}
+```

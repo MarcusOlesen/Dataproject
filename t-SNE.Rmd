@@ -1,0 +1,758 @@
+---
+title: "t-SNE"
+date: "May 26, 2023"
+output: 
+  html_document:
+    toc: true
+    code_folding: show
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction to t-SNE (t-Distributed Stochastic Neighbor Embedding)
+t-SNE is a dimensionality reduction technique that maps high-dimensional data to a lower-dimensional space while preserving local and global structure.
+
+Note: Better and faster if PCA is first applied on data set and then run t-SNE on the 50 PC's (some packages does this on their own, however the Seurat t-SNE does not).
+
+t-SNE uses pairwise similarities between data points (usually measured by Euclidean distance) to construct a similarity matrix and then use conditional probability of a point being neighbor to another point under a student's t-distribution to rearrange the data points in a low-dimensional space.
+This makes t-SNE adapt to handling non-linear data structures.
+
+Note: To preserve clusters/partitions in the high-dimensional space, we want to scale the similarity values to have standard deviation equal to 1, so that density between a group of points will be seen as the same, even though a group may be less dense.
+
+t-SNE and UMAP are quite similar methods.
+
+## Setup
+```{r, warning=FALSE, include=FALSE}
+library(tidyverse)
+library(Seurat)
+library(anndata)
+library(pdfCluster)
+library(gplots)
+```
+
+
+```{r load pilot set}
+setwd("~/sc_covid_PiB2023/data_science_project/Data")
+data <- read_h5ad("Pilot_2_rule_them_ALL.h5ad") # our pilot data
+```
+
+
+## First PCA, followed by t-SNE
+In this section we run t-SNE on the data on which PCA has been used to dimension reduced.
+
+### t-sne for every celletype
+We start by running it on the different cell types using 'RunTsne' from the 'Seurat' package.
+Running t-SNE on a cell type level allows for the comparison of infected and uninfected cells within each cell type.
+
+```{r class.source = 'fold-hide', warning=FALSE, message=FALSE}
+# Making a dataframe (used for plotting w. ggplots) with t-SNE coordinates
+celltypes <- unique(data$obs$cellType)
+df <- as.data.frame(data$obs) %>% 
+  add_column(tSNE_1 = 0) %>% 
+  add_column(tSNE_2 = 0)
+
+for (c in celltypes){ 
+  #print(c) # To show progress of loop
+  
+  c_subset = data[which(data$obs$cellType == c)] # Subsetting for each celltype
+  PCA <- RunPCA(c_subset$X, assay = NULL, npcs = 50, rev.pca = F, weight.by.var = T, verbose = F)
+  c_cells_tsne <- RunTSNE(
+    PCA[],
+    assay = "RNA",
+    seed.use = 1,
+    tsne.method = "Rtsne",
+    dim.embed = 2,
+    max_iter = 500)
+  
+  df[df$cellType == c,]$tSNE_1 <- c_cells_tsne[[,1]]
+  df[df$cellType == c,]$tSNE_2 <- c_cells_tsne[[,2]]
+}
+```
+
+#### Infection status:
+Plot colored by infection status.
+
+```{r class.source = 'fold-hide'}
+  df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = tSNE_1, y = tSNE_2, color = Is_infected)) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  scale_color_manual(values = c("0" = "blue", "1" = "red"))    +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "t-SNE cell type") + 
+  xlab("tSNE_1") +
+  ylab("tSNE_2")
+```
+
+#### Viral Load:
+Plot colored by the viral load of each cell.
+
+```{r class.source = 'fold-hide'}
+  df %>% 
+  arrange(viralLoad) %>%  # To make the infected cells come to the front
+  ggplot(aes(x = tSNE_1, y = tSNE_2, color = viralLoad)) +
+  geom_point(size = 1.5, alpha = 0.7) +
+  scale_color_gradient(low = "blue", high = "red") +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "t-SNE cell type") + 
+  xlab("tSNE_1") +
+  ylab("tSNE_2")
+```
+
+#### Patient ID
+Plot coloredd by the Patient ID
+```{r class.source = 'fold-hide'}
+  df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = tSNE_1, y = tSNE_2, color = PatientID)) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "t-SNE cell type") + 
+  xlab("tSNE_1") +
+  ylab("tSNE_2")
+```
+
+### Clustering on cell type
+We try clustering for infection status on cell level.
+
+```{r class.source = 'fold-hide', warning=FALSE}
+
+celltypes <- unique(data$obs$cellType)
+
+matrix_of_ari <- matrix(1:48, nrow = 8, ncol = 6,
+                      dimnames = list(celltypes,
+                                      c("PCA_kmeans", "PCA_hier", "scVI_kmeans", "scVI_hier", "cor_kmeans", "cor_hier")))
+
+n_clusters = 2 # number of clusters
+
+df["kmeans"] <- 0
+df["hierarchical"] <- 0
+
+for (c in celltypes){ 
+  c_subset = df[df$cellType == c,]
+  max_ari = -1
+  
+# Kmeans:
+  cluster <- kmeans(c_subset[, 9:10], iter = 10000, nstart = 100, n_clusters) # kmeans clustering
+  matrix_of_ari[c, "PCA_kmeans"]  = adj.rand.index(cluster$cluster, c_subset$Is_infected) # ARI for kmeans clustering
+  df[df$cellType == c,]$kmeans <- factor(cluster$cluster)
+  
+# Hierarchical
+  for (m in c("complete", "single", "average", "centroid")){
+  dm <- dist(as.data.frame(c_subset[, 9:10])) # Distance matrix
+  hc <- hclust(dm, method = "centroid") # simple dendrogram
+  clusterCutS <- cutree(hc, n_clusters) # data, number of clusters
+  ari = adj.rand.index(clusterCutS, c_subset$Is_infected)
+  df[df$cellType == c,]$hierarchical <- factor(clusterCutS)
+  if (max_ari < ari) {
+      matrix_of_ari[c, "PCA_hier"] <- ari
+      max_ari = ari}
+  }}
+matrix_of_ari <- round(matrix_of_ari, 4)
+matrix_of_ari[,1:2]
+```
+
+#### Kmeans
+```{r class.source = 'fold-hide'}
+ggplot(df, aes(x = tSNE_1, y = tSNE_2 , color = factor(kmeans))) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "Kmeans on tSNE", subtitle = "Dimension reduction with PCA") + 
+  xlab("tSNE_1") +
+  ylab("tSNE_2") +
+  theme(legend.position = "none")
+```
+
+#### Hierarchical
+```{r class.source = 'fold-hide'}
+ggplot(df, aes(x = tSNE_1, y = tSNE_2 , color = factor(hierarchical))) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "Hierarchical on tSNE", subtitle = "Dimension reduction with PCA\nClustered by infection; k = 2") + 
+  xlab("tSNE_1") +
+  ylab("tSNE_2") +
+  theme(legend.position = "none")
+```
+
+### Loop To Optimize Model Parameters with Adjusted Rand Index
+This loop-based approach utilizes the adjusted Rand index (ARI) as a measure to guide the search for the best parameter values. By systematically iterating through different combinations of parameters and evaluating their performance using the ARI, this approach helps identify the parameter values that yield the highest similarity between predicted and true labels. It saves the coordinates in the dataset to be used for clustering plots in 'Clean_Clustering'.
+
+```{r, eval=FALSE}
+perplexity_list <- c(5, 30, 50, 100, 150)
+theta_list <- c(0.15, 0.25, 0.5, 0.8, 0.99)
+
+n_clusters = 8 # number of clusters
+max_ARI_kmeans_tsne = 0
+max_ARI_hier_tsne = 0
+
+
+for (p in perplexity_list) {
+  for (t in theta_list) {
+    tsne_test <- RunTSNE(
+    data$obsm$X_pca,
+    assay = "RNA",
+    seed.use = 10,
+    tsne.method = "Rtsne",
+    dim.embed = 2,
+    perplexity = p, 
+    theta = t
+    )
+  cluster <- kmeans(tsne_test[[, 1:2]], iter = 10000, nstart = 100, n_clusters) # kmeans clustering
+  ARI_tsne = adj.rand.index(cluster$cluster, data$obs$cellType) # ARI for kmeans clustering
+
+  if (max_ARI_kmeans_tsne < ARI_tsne) {
+    max_ARI_kmeans_tsne = ARI_tsne
+    best_kmeans_tsne <- tsne_test}
+  
+  for (m in c("complete", "single", "average", "centroid")){
+    dm <- dist(as.data.frame(tsne_test[[, 1:2]])) # Distance matrix
+    hc <- hclust(dm, method = m) # simple dendrogram
+    clusterCutS <- cutree(hc, n_clusters) # data, number of clusters
+    ARI_hier_tsne = adj.rand.index(clusterCutS, data$obs$cellType)
+    
+    if (max_ARI_hier_tsne < ARI_hier_tsne) {
+      max_ARI_hier_tsne = ARI_hier_tsne
+      best_hier_tsne <- tsne_test}
+    }
+  }
+}
+# We save the coordinates that gives the highest ARI in the pilot set to plot the clusterings later.
+if (max_ARI_kmeans_tsne > max_ARI_hier_tsne) {
+matrix_data <-
+  matrix(
+  data = c(best_kmeans_tsne[[, 1]], best_kmeans_tsne[[, 2]]),
+  nrow = length(best_kmeans_tsne[[, 1]]),
+  ncol = 2
+  )
+  data$obsm$X_PCA_tSNE <-  matrix_data
+  write_h5ad(data, '../Data/Pilot_2_rule_them_ALL.h5ad')
+} else {
+  matrix_data <-
+  matrix(
+  data = c(best_hier_tsne[[, 1]], best_hier_tsne[[, 2]]),
+  nrow = length(best_hier_tsne[[, 1]]),
+  ncol = 2
+  )
+  data$obsm$X_PCA_tSNE <-  matrix_data
+  write_h5ad(data, '../Data/Pilot_2_rule_them_ALL.h5ad')
+}
+```
+ 
+ 
+## First scVI, followed by t-SNE:
+In this section we run t-SNE on the data on which scVI has been used to dimension reduced.
+
+### tSNE for every cell type
+We start by running it on the different cell types using 'RunTsne' from the 'Seurat' package.
+Running t-SNE on a cell type level allows for the comparison of infected and uninfected cells within each cell type.
+
+```{r class.source = 'fold-hide', warning=FALSE, message=FALSE}
+celltypes <- unique(data$obs$cellType)
+df <- as.data.frame(data$obs) %>% 
+  add_column(tSNE_1 = 0) %>% 
+  add_column(tSNE_2 = 0)
+
+for (c in celltypes){ 
+  print(c) # To show progress of loop
+  
+  c_subset = data[which(data$obs$cellType == c)]
+  c_cells_tsne <- RunTSNE(
+    c_subset$obsm$X_scVI,
+    assay = "RNA",
+    seed.use = 1,
+    tsne.method = "Rtsne",
+    dim.embed = 2,
+    max_iter = 500)
+  
+  df[df$cellType == c,]$tSNE_1 <- c_cells_tsne[[,1]]
+  df[df$cellType == c,]$tSNE_2 <- c_cells_tsne[[,2]]
+}
+```
+
+#### Infection status:
+Plot colored by the infection status of each cell.
+
+```{r class.source = 'fold-hide'}
+  df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = tSNE_1, y = tSNE_2, color = Is_infected)) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  scale_color_manual(values = c("0" = "blue", "1" = "red"))    +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "t-SNE cell type") + 
+  xlab("tSNE_1") +
+  ylab("tSNE_2")
+```
+
+#### Viral load:
+Plot colored by the viral load of each cell.
+
+```{r}
+  df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = tSNE_1, y = tSNE_2, color = viralLoad)) +
+  geom_point(size = 1.5, alpha = 0.7) +
+  scale_color_gradient(low = "blue", high = "red") +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "t-SNE cell type") + 
+  xlab("tSNE_1") +
+  ylab("tSNE_2")
+```
+
+#### Patient ID
+Plot colored by patient id.
+
+```{r class.source = 'fold-hide'}
+  df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = tSNE_1, y = tSNE_2, color = PatientID)) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "t-SNE cell type") + 
+  xlab("tSNE_1") +
+  ylab("tSNE_2")
+```
+
+### Clustering for each celltype
+We try clustering for infection status on cell level.
+
+```{r}
+celltypes <- unique(data$obs$cellType)
+
+n_clusters = 2 # number of clusters
+
+df["kmeans"] <- 0
+df["hierarchical"] <- 0
+
+for (c in celltypes){ 
+  c_subset = df[df$cellType == c,]
+  max_ari = -1
+  
+# Kmeans:
+  cluster <- kmeans(c_subset[, 9:10], iter = 10000, nstart = 100, n_clusters) # kmeans clustering
+  matrix_of_ari[c, "scVI_kmeans"] = adj.rand.index(cluster$cluster, c_subset$Is_infected) # ARI for kmeans clustering
+  df[df$cellType == c,]$kmeans <- factor(cluster$cluster)
+  
+# Hierarchical
+  for (m in c("complete", "single", "average", "centroid")){
+  dm <- dist(as.data.frame(c_subset[, 9:10])) # Distance matrix
+  hc <- hclust(dm, method = "centroid") # simple dendrogram
+  clusterCutS <- cutree(hc, n_clusters) # data, number of clusters
+  ari = adj.rand.index(clusterCutS, c_subset$Is_infected)
+  df[df$cellType == c,]$hierarchical <- factor(clusterCutS)
+  if (max_ari < ari) {
+      matrix_of_ari[c, "scVI_hier"] <- ari
+      max_ari = ari}
+  }}
+matrix_of_ari <- round(matrix_of_ari, 4)
+matrix_of_ari[,3:4]
+
+```
+
+#### Kmeans
+
+```{r class.source = 'fold-hide'}
+ggplot(df, aes(x = tSNE_1, y = tSNE_2 , color = factor(kmeans))) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "Kmeans on scVI", subtitle = "Clustered by infection; k = 2") + 
+  xlab("tSNE_1") +
+  ylab("tSNE_2")
+```
+
+#### Hierarchical
+
+```{r class.source = 'fold-hide'}
+ggplot(df, aes(x = tSNE_1, y = tSNE_2 , color = factor(hierarchical))) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "Hierarchical on scVI", subtitle = "Clustered by infection; k = 2") + 
+  xlab("tSNE_1") +
+  ylab("tSNE_2")+
+  theme(legend.position = "none")
+```
+
+### Loop To Optimize Model Parameters with Adjusted Rand Index
+This loop-based approach utilizes the adjusted Rand index (ARI) as a measure to guide the search for the best parameter values. By systematically iterating through different combinations of parameters and evaluating their performance using the ARI, this approach helps identify the parameter values that yield the highest similarity between predicted and true labels. It saves the coordinates in the dataset to be used for clustering plots in 'Clean_Clustering'.
+
+```{r class.source = 'fold-hide', message = FALSE, warning=FALSE, eval =FALSE}
+perplexity_list <- c(5, 30, 50, 100, 150)
+theta_list <- c(0.15, 0.25, 0.5, 0.8, 0.99)
+
+n_clusters = 8 # number of clusters
+max_ARI_kmeans_tsne = 0
+max_ARI_hier_tsne = 0
+
+for (p in perplexity_list) {
+  for (t in theta_list) {
+    tsne_test <- RunTSNE(
+    data$obsm$X_scVI,
+    assay = "RNA",
+    seed.use = 10,
+    tsne.method = "Rtsne",
+    dim.embed = 2,
+    perplexity = p, 
+    theta = t
+    )
+  cluster <- kmeans(tsne_test[[, 1:2]], iter = 10000, nstart = 100, n_clusters) # kmeans clustering
+  ARI_tsne = adj.rand.index(cluster$cluster, data$obs$cellType) # ARI for kmeans clustering
+
+  if (max_ARI_kmeans_tsne < ARI_tsne) {
+    max_ARI_kmeans_tsne = ARI_tsne
+    tsne_kmean_per = p
+    tsne_kmean_theta = t
+    best_kmeans_tsne <- tsne_test}
+  
+  for (m in c("complete", "single", "average", "centroid")){
+    dm <- dist(as.data.frame(tsne_test[[, 1:2]])) # Distance matrix
+    hc <- hclust(dm, method = m) # simple dendrogram
+    clusterCutS <- cutree(hc, n_clusters) # data, number of clusters
+    ARI_hier_tsne = adj.rand.index(clusterCutS, data$obs$cellType)
+    
+    if (max_ARI_hier_tsne < ARI_hier_tsne) {
+      best_linkage_tsne = m
+      max_ARI_hier_tsne = ARI_hier_tsne
+      hier_tsne_per = p
+      hier_tsne_theta = t
+      best_hc = hc
+      best_hier_tsne <- tsne_test}
+    }
+  }
+}
+# We save the coordinates that gives the highest ARI in the pilot set to plot the clusterings later.
+if (max_ARI_kmeans_tsne > max_ARI_hier_tsne) {
+  matrix_data <-
+    matrix(
+      data = c(best_kmeans_tsne[[, 1]], best_kmeans_tsne[[, 2]]),
+      nrow = length(best_kmeans_tsne[[, 1]]),
+      ncol = 2
+    )
+data$obsm$X_scVI_tSNE <-  matrix_data
+write_h5ad(data, '../Data/Pilot_2_rule_them_ALL.h5ad')
+} else {
+  matrix_data <-
+    matrix(
+      data = c(best_hier_tsne[[, 1]], best_hier_tsne[[, 2]]),
+      nrow = length(best_hier_tsne[[, 1]]),
+      ncol = 2
+    )
+data$obsm$X_scVI_tSNE <-  matrix_data
+write_h5ad(data, '../Data/Pilot_2_rule_them_ALL.h5ad')
+}
+```
+
+
+### Loop for heatmap purposes
+This loop explores various parameter combinations to find the optimal configuration for hierarchical clustering, based on the highest Adjusted Rand Index (ARI) score. The ARI scores are stored in a dataframe for creating a heatmap which offers a visual representation of the explored parameter space.
+
+```{r class.source = 'fold-hide'}
+
+df_tsne_ari <- data.frame(matrix(nrow = 5, ncol = 5))
+
+perplexity_list <- c(5, 30, 50, 100, 150)
+theta_list <- c(0.15, 0.25, 0.5, 0.8, 0.99)
+
+colnames(df_tsne_ari) <- perplexity_list
+rownames(df_tsne_ari) <- theta_list
+
+n = 8 # number of clusters
+
+for (i in 1:nrow(df_tsne_ari)) {
+  for (j in 1:ncol(df_tsne_ari)) {
+    tsne_test <- RunTSNE(
+    data$obsm$X_scVI,
+    assay = "RNA",
+    seed.use = 10,
+    tsne.method = "Rtsne",
+    dim.embed = 2,
+    perplexity = perplexity_list[j], 
+    theta = theta_list[i]
+    )
+
+    dm <- dist(as.data.frame(tsne_test[[, 1:2]])) # Distance matrix
+    hc <- hclust(dm, method = "centroid") # simple dendrogram
+    clusterCutS <- cutree(hc, n) # data, number of clusters
+    ARI <- adj.rand.index(clusterCutS, data$obs$cellType)
+    df_tsne_ari[i, j] <- round(ARI,4)
+  }
+}
+```
+
+#### Heatmap of ARI scores
+The heatmap displays the ARi value of differnet combinations of parameters. The best score is marked with a blue border.
+
+```{r class.source = 'fold-hide'}
+ari_matrix <- as.matrix(df_tsne_ari)
+
+# Find the maximum value and its coordinates
+max_coords <- as.vector(which(ari_matrix == max(ari_matrix), arr.ind = TRUE))
+
+# Function to mark the max value
+makeRects <- function(cells){
+  xl=cells[2]-0.49
+  yb=nrow(ari_matrix)+1-cells[1]-0.49
+  xr=cells[2]+0.49
+  yt=nrow(ari_matrix)+1-cells[1]+0.49
+  rect(xl,yb,xr,yt,border="blue",lwd=3)
+}
+
+
+heatmap.2(
+  ari_matrix,
+  Colv = NA,
+  Rowv = NA,
+  dendrogram = "none",
+  trace = "none",
+  xlab = "min.dist",
+  ylab = "n.neigbours",
+  main = "Heatmap of ARI",
+  #col = colorRampPalette(c("white", "blue")), 
+  notecol = "black",
+  key = TRUE,
+  cellnote = df_tsne_ari,
+  add.expr = {makeRects(max_coords)})
+```
+
+## First scVI that has been batch corrected, followed by t-SNE:
+In this section we run t-SNE on the data on which scVI with batch corrections has been used to dimension reduced.
+The idea is that by applying batch correction with scVI, it becomes easier to identify and characterize cell types more accurately, enhancing downstream analyses such as clustering. By correcting we might also enhance the ability to discern true biological differences from technical impressions.
+
+### t-sne for every celletype
+We start by running it on the different cell types using 'RunTsne' from the 'Seurat' package.
+Running t-SNE on a cell type level allows for the comparison of infected and uninfected cells within each cell type.
+
+```{r, warning=FALSE, message=FALSE}
+celltypes <- unique(data$obs$cellType)
+df <- as.data.frame(data$obs) %>% 
+  add_column(tSNE_1 = 0) %>% 
+  add_column(tSNE_2 = 0)
+
+for (c in celltypes){ 
+  
+  c_subset = data[which(data$obs$cellType == c)]
+  c_cells_tsne <- RunTSNE(
+    c_subset$obsm$X_scVI_corrected,
+    assay = "RNA",
+    seed.use = 1,
+    tsne.method = "Rtsne",
+    dim.embed = 2,
+    max_iter = 500)
+  
+  df[df$cellType == c,]$tSNE_1 <- c_cells_tsne[[,1]]
+  df[df$cellType == c,]$tSNE_2 <- c_cells_tsne[[,2]]
+}
+```
+
+#### Infection status:
+Plots colored by the infection status of each cell.
+
+```{r class.source = 'fold-hide'}
+  df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = tSNE_1, y = tSNE_2, color = Is_infected)) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  scale_color_manual(values = c("0" = "blue", "1" = "red"))    +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "t-SNE cell type") + 
+  xlab("tSNE_1") +
+  ylab("tSNE_2")
+```
+
+#### Viral load:
+Plots colored  by the viral load of each cell.
+
+```{r class.source = 'fold-hide'}
+  df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = tSNE_1, y = tSNE_2, color = viralLoad)) +
+  geom_point(size = 1.5, alpha = 0.7) +
+  scale_color_gradient(low = "blue", high = "red") +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "t-SNE cell type") + 
+  xlab("tSNE_1") +
+  ylab("tSNE_2")
+```
+
+#### Patient ID
+Plots colored by patient id.
+
+```{r class.source = 'fold-hide'}
+  df %>% 
+  arrange(viralLoad) %>% 
+  ggplot(aes(x = tSNE_1, y = tSNE_2, color = PatientID)) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "t-SNE cell type") + 
+  xlab("tSNE_1") +
+  ylab("tSNE_2")
+```
+
+### Clustering for each celltype
+
+```{r}
+
+celltypes <- unique(data$obs$cellType)
+
+n_clusters = 2 # number of clusters
+
+df["kmeans"] <- 0
+df["hierarchical"] <- 0
+
+for (c in celltypes){ 
+  c_subset = df[df$cellType == c,]
+  max_ari =-1
+  
+# Kmeans:
+  cluster <- kmeans(c_subset[, 9:10], iter = 10000, nstart = 100, n_clusters) # kmeans clustering
+  matrix_of_ari[c, "cor_kmeans"] = adj.rand.index(cluster$cluster, c_subset$Is_infected) # ARI for kmeans clustering
+  df[df$cellType == c,]$kmeans <- factor(cluster$cluster)
+  
+# Hierarchical
+  for (m in c("complete", "single", "average", "centroid")){
+  dm <- dist(as.data.frame(c_subset[, 9:10])) # Distance matrix
+  hc <- hclust(dm, method = "centroid") # simple dendrogram
+  clusterCutS <- cutree(hc, n_clusters) # data, number of clusters
+  ari = adj.rand.index(clusterCutS, c_subset$Is_infected)
+  df[df$cellType == c,]$hierarchical <- factor(clusterCutS)
+  if (max_ari < ari) {
+      matrix_of_ari[c, "cor_hier"] <- ari
+      max_ari = ari}
+  }}
+matrix_of_ari <- round(matrix_of_ari, 4)
+matrix_of_ari[,5:6]
+
+```
+
+#### Kmeans
+
+```{r class.source = 'fold-hide'}
+ggplot(df, aes(x = tSNE_1, y = tSNE_2 , color = factor(kmeans))) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "Kmeans on scVI", subtitle = "Clustered by infection; k = 2") + 
+  xlab("tSNE_1") +
+  ylab("tSNE_2")
+```
+
+#### Hierarchical
+
+```{r class.source = 'fold-hide'}
+ggplot(df, aes(x = tSNE_1, y = tSNE_2 , color = factor(hierarchical))) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  facet_wrap("cellType", scales = "free", labeller = labeller()) +
+  theme(axis.text = element_blank(),
+  axis.ticks = element_blank()) +
+  labs(title = "Hierarchical on scVI", subtitle = "Clustered by infection; k = 2") + 
+  xlab("tSNE_1") +
+  ylab("tSNE_2")+
+  theme(legend.position = "none")
+```
+
+A heatmap displaying the ARI score of each combination of dimention reduction methods and clustering method with the different celltypes.
+```{r class.source = 'fold-hide'}
+heatmap.2(
+  matrix_of_ari,
+  Colv = NA,
+  Rowv = NA,
+  dendrogram = "none",
+  cexRow=0.8,
+  cexCol = 0.8,
+  trace = "none",
+  main = "ARI with different methods",
+  notecol = "black",
+  key = TRUE,
+  cellnote = matrix_of_ari)
+```
+
+### Loop To Optimize Model Parameters with Adjusted Rand Index
+This loop-based approach utilizes the adjusted Rand index (ARI) as a measure to guide the search for the best parameter values. By systematically iterating through different combinations of parameters and evaluating their performance using the ARI, this approach helps identify the parameter values that yield the highest similarity between predicted and true labels. It saves the coordinates in the dataset to be used for clustering plots in 'Clean_Clustering'.
+
+```{r, eval=FALSE}
+perplexity_list <- c(5, 30, 50, 100, 150)
+theta_list <- c(0.15, 0.25, 0.5, 0.8, 0.99)
+
+n_clusters = 8 # number of clusters
+max_ARI_kmeans_tsne = 0
+max_ARI_hier_tsne = 0
+
+
+for (p in perplexity_list) {
+  for (t in theta_list) {
+    tsne_test <- RunTSNE(
+    data$obsm$X_scVI_corrected,
+    assay = "RNA",
+    seed.use = 10,
+    tsne.method = "Rtsne",
+    dim.embed = 2,
+    perplexity = p, 
+    theta = t
+    )
+  cluster <- kmeans(tsne_test[[, 1:2]], iter = 10000, nstart = 100, n_clusters) # kmeans clustering
+  ARI_tsne = adj.rand.index(cluster$cluster, data$obs$cellType) # ARI for kmeans clustering
+
+  if (max_ARI_kmeans_tsne < ARI_tsne) {
+    max_ARI_kmeans_tsne = ARI_tsne
+    best_kmeans_tsne <- tsne_test}
+  
+  for (m in c("complete", "single", "average", "centroid")){
+    dm <- dist(as.data.frame(tsne_test[[, 1:2]])) # Distance matrix
+    hc <- hclust(dm, method = m) # simple dendrogram
+    clusterCutS <- cutree(hc, n_clusters) # data, number of clusters
+    ARI_hier_tsne = adj.rand.index(clusterCutS, data$obs$cellType)
+    
+    if (max_ARI_hier_tsne < ARI_hier_tsne) {
+      max_ARI_hier_tsne = ARI_hier_tsne
+      best_hier_tsne <- tsne_test}
+    }
+  }
+}
+# We save the coordinates that gives the highest ARI in the pilot set to plot the clusterings later.
+if (max_ARI_kmeans_tsne > max_ARI_hier_tsne) {
+  matrix_data <-
+    matrix(
+      data = c(best_kmeans_tsne[[, 1]], best_kmeans_tsne[[, 2]]),
+      nrow = length(best_kmeans_tsne[[, 1]]),
+      ncol = 2
+    )
+data$obsm$X_scVI_corrected_tSNE <-  matrix_data
+write_h5ad(data, '../Data/Pilot_2_rule_them_ALL.h5ad')
+} else {
+  matrix_data <-
+    matrix(
+      data = c(best_hier_tsne[[, 1]], best_hier_tsne[[, 2]]),
+      nrow = length(best_hier_tsne[[, 1]]),
+      ncol = 2
+    )
+data$obsm$X_scVI_corrected_tSNE <-  matrix_data
+write_h5ad(data, '../Data/Pilot_2_rule_them_ALL.h5ad')
+}
+```
