@@ -64,6 +64,8 @@ The repository contains the following files.
 
 - `data_subsetting.Rmd` 
   - File containing the code used to create the final pilot set and other aspects of working with the data
+- `summary_statistics.Rmd`
+  - File containing summary statistics and graphs of the data and pilot set
 - `PCA.Rmd`
   -  File containing code regarding principal component analysis (PCA)
 - `scVI.Rmd`
