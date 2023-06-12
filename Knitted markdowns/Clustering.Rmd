@@ -1,0 +1,401 @@
+---
+title: "Clustering on Low Dimensional Embedding"
+#author: "Sofie2"
+date: "May 30, 2023"
+output:
+  html_document:
+    toc: true
+    theme: united
+---
+
+## Introduction to K-means and hierarchical clustering as well as Adjusted Rand Index (ARI)
+
+### K-means Clustering
+The K-means clustering method partitions the observations into, $K$ clusters such that the we minimize the total within-cluster variation summed over all clusters ($K$ must be predefined). The within-cluster variation is defined as the sum of squared Euclidean distances between the observation and the corresponding centroid of the assigned cluster:
+So we want to minimize:
+$$
+\min_{C_1,...,C_K} \left\{ \sum_{k=1}^K \sum_{x_i \in C_k} (x_i - \mu_k)^2 \right\}
+$$
+where $C_k$ is cluster $k$ with $\mu_k$ being the corresponding centroid of this cluster and $x_i$ is observation $i$.
+
+The K-means algorithm randomly assigns each object to a random cluster giving us an initial cluster assignment for all observations.
+We then iterate between the below until the cluster assignments stop changing:
+  1) For each cluster, the cluster centroid is computed.
+  2) Reassign each observation to the cluster whose centroid is the closest.
+
+
+### Hierarchical Clustering
+
+Hierarchical clustering does not need a predefined $K$ number of clusters, unlike K-means clustering.
+For the hierarchical clustering, each observation is first assigned to its own cluster giving us $N$ clusters. All pairwise dissimilarities (usually Euclidean distance) are then measured for the clusters, and the two most similar clusters are then fused into a single cluster (giving us $N-1$ clusters). 
+The dissimilarity between these two clusters will indicate the height in the dendrogram (explained below).
+The new pairwise inter-cluster dissimilarities are then computed and once again the most similar clusters are fused - this is continued until all observations are in one single cluster.
+
+#### Linkage
+Once we have clusters consisting of multiple observations, we have different ways to compute the "linkage" to be used for computing the pairwise dissimilarities. The most common ones are:
+  For these 3, all dissimilarities between the observations in both clusters are computed and then:
+    Complete (Maximal intercluster dissimilarity): the largest of these is recorded.
+    Single (Minimal intercluster dissimilarity): the smallest of these is recorded.
+    Average (Mean intercluster dissimilarity): the average of these is recorded.
+
+  Centroid: Dissimilarity between the centroid (average) of each cluster. 
+            This can result in undesirable inversions (the merge/fuse line in the dendrogram is lower than the prior one).
+
+
+#### Dendrogram
+The hierarchical clustering can be interpreted with a dendrogram. 
+The dendrogram shows the fusing of the clusters throughout the process, where the dissimilarity between two fused clusters is shown in the height. 
+The dendrogram helps interpret and evaluate a relevant number of clusters to divide the observations into, as we see the dissimilarity between clusters being fused becoming larger and larger - this means we would like to find a decent cutoff, which will then indicate a sensible number of clusters, if this is not predefined.
+
+
+
+### Adjusted Rand Index (ARI)
+ARI is a measure of similarity between two data clusterings or partitions. We use this to compare our clustering methods to the original cluster assignments.
+The ARI is set to be 0, when we have a similarity equal to a random assignment value, meaning that if you get a positive ARI it is better than random assignment and the closer to 1 it is, the more fitting the grouping is. However, if it is negative, the grouping is less similar than random assignment.
+The ARI is calculated as:
+$$
+ARI = \frac{\text{RI} - \text{Expected RI}}{Max(\text{RI}) - \text{Expected RI}}
+$$
+Where the Rand Index (RI) is defined as:
+$$
+RI = \frac{\text{correct similar pairs} + \text{correct dissimilar pairs}}{\text{total possible pairs}} = \frac{a + b}{\begin{pmatrix} n \\ 2 \end{pmatrix}}
+$$
+
+
+## Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(Seurat)
+library(tidyverse)
+library(anndata)
+library(pdfCluster)
+library("patchwork")
+```
+
+```{r import data, warning=FALSE, message = FALSE}
+setwd("C:/Users/sofie/OneDrive/Skrivebord") # path to data folder
+dat <- read_h5ad("Pilot_2_rule_them_ALL.h5ad")
+```
+
+## Kmeans and Hierarchical Clustering for Celltype
+
+The most evident structure seen in the low-dimensional embeddings is cell type clustering, whereas viral load and infection status on cell level seems to cluster more within cell type groupings. Hence we use 8 clusters (k=8) corresponding to the eight cell types. 
+
+For each dimension reduction method (PCA, UMAP, tsNE, scVI) we run kmeans and hierarcical clustering on celltypes and compute ARI.
+Each clustering result and ARI value is stored within a anndata object for each dimension reduction method.
+
+```{r}
+n = 8 # number of clusters 
+```
+
+```{r generate and save clusters}
+m = length(dat$obsm_keys())
+
+objects = list()
+
+for (idx in 1:m){
+  
+  # print(dat$obsm_keys()[idx]) 
+  
+  # create anndata object to store clusters and metadata
+  matrix <- as.matrix(dat$obsm[idx]) # extract coordinates
+  x <- do.call(rbind, matrix)[,1:2] # only use first two columns
+  colnames(x) <-c("col1", "col2") # rename columns
+
+  ad <- AnnData(X = x, obs = dat$obs, obsm = list(coordinates = x)) # convert to anndata object , 
+
+  # compute kmeans
+  k = kmeans(ad$X, n)
+  ad$obsm$kmeans <- data.matrix(as.factor(k$cluster))
+  
+  # compute ARI
+  ARI = adj.rand.index(ad$obsm$kmeans, dat$obs$cellType) 
+  ad$uns$kmeans_ARI <- ARI
+  
+  # compute hierarchical clustering
+  dm <- dist(ad$X) # Distance matrix
+  hc <- hclust(dm, method="centroid") # simple dendrogram
+  ad$obsm$hierarchical <- data.matrix(as.factor(cutree(hc, n))) # data, number of clusters
+  
+  # compute ARI 
+  ARI = adj.rand.index(ad$obsm$hierarchical, dat$obs$cellType) 
+  ad$uns$hierarchical_ARI <- ARI
+  
+  # save as unique anndata object
+  ad_name <- paste("ad",dat$obsm_keys()[idx] , sep = "_") # name anndata object
+  assign(ad_name, ad$copy())
+  
+  objects = c(objects, ad_name)
+}
+
+ad_X_pca # show anndata and metadata 
+
+```
+
+
+## Generate Clustering Plots
+
+
+
+
+For each dimension reduction method we generate a plot for kmeans and hierarchical clustering, as well as one for the true cell type groups.
+```{r generate plots}
+theme = theme(legend.position = "none", 
+              axis.title = element_blank(), 
+              axis.ticks = element_blank(), 
+              axis.text = element_blank(), 
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), 
+              plot.caption = element_text(size = 14), 
+              plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
+
+methods = c("UMAP", "tSNE", "PCA", "scVI", "scVI, UMAP", "scVI (batch corrected)", "scVI, UMAP (batch corrected)", "scVI, tSNE (batch corrected)", "scVI, tSNE")
+
+for (jdx in 1:m) {
+  name <- unlist(objects[jdx])
+  ad <- get(name)
+  
+  # create kmeans cluster plot
+  title = paste(c("Kmeans", methods[jdx]), collapse = " ") # setup title
+  caption = paste(c("ARI", round(ad$uns$kmeans_ARI, 4)), collapse = " ") # setup caption
+  
+  p <- as.data.frame(ad$obsm) %>%
+  ggplot(aes(x = coordinates.1, y = coordinates.2, color = kmeans)) +
+  geom_point() +
+  labs(title = title, caption = caption) + 
+    theme 
+  
+  # save plot as variable
+  p_name <- paste("kmeans", name, sep = "_") # create name for plot
+  assign(p_name, p) # assign name to variable
+  
+  # create hierarchical cluster plot
+  title = paste(c("Hierarchical", methods[jdx]), collapse = " ") # setup title
+  caption = paste(c("ARI", round(ad$uns$hierarchical_ARI, 4)), collapse = " ") # setup caption
+  
+  p <- as.data.frame(ad$obsm) %>%
+  ggplot(aes(x = coordinates.1, y = coordinates.2, color = hierarchical)) +
+  geom_point() +
+  labs(title = title, caption = caption) + 
+    theme 
+  
+  # save plot as variable
+  p_name <-
+  paste("hierarchical", name, sep = "_") # create name for plot
+  assign(p_name, p) # assign name to variable
+  
+   # create cell type plot
+  title = paste(c("Cell Type", methods[jdx]), collapse = " ") # setup title
+  
+  p <- as.data.frame(ad$obsm) %>%
+  ggplot(aes(x = coordinates.1,  y = coordinates.2,  color = ad$obs$cellType )) +
+  geom_point() +
+  labs(title = title) + 
+    theme
+  
+  # save plot as variable
+  p_name <- paste("cellType", name, sep = "_") # create name for plot
+  assign(p_name, p) # assign name to variable
+}
+```
+
+
+```{r, fig.width=16,fig.height=12}
+ylab_theme = theme(axis.title.y = element_text(size = 16, face = "bold"))
+remove_title = theme(plot.title = element_blank())
+Soup <- (
+  kmeans_ad_X_pca + labs(title = "PCA") + ylab("Kmeans") + ylab_theme |
+    kmeans_ad_X_PCA_tSNE + labs(title = "t-SNE") |
+    kmeans_ad_X_PCA_UMAP + labs(title = "UMAP") |
+    kmeans_ad_X_scVI_UMAP + labs(title = "scVI, UMAP")
+) /
+  (
+    hierarchical_ad_X_pca + ylab("Hierarchical") + ylab_theme + remove_title |
+      hierarchical_ad_X_PCA_tSNE + remove_title |
+      hierarchical_ad_X_PCA_UMAP + remove_title |
+      hierarchical_ad_X_scVI_UMAP + remove_title
+  ) /
+  (
+    cellType_ad_X_pca + ylab("True Cell Type Clustering") + ylab_theme + remove_title|
+      cellType_ad_X_PCA_tSNE + remove_title|
+      cellType_ad_X_PCA_UMAP + remove_title| 
+      cellType_ad_X_scVI_UMAP+ remove_title
+  )
+
+
+wrap_elements(Soup) +
+  labs(tag = "Clustering Algorithm") +
+  theme(
+    plot.tag.position = "left",
+    plot.tag = element_text(
+      size = 25,
+      hjust = 0.5,
+      face = "bold",
+      angle = 90, 
+      vjust = 2
+    )
+  ) +
+  plot_annotation(title = "Dimensionality Reduction Method",
+                  theme = theme(plot.title = element_text(
+                    size = 25, hjust = 0.5, face = "bold"
+                  )))
+
+```
+
+```{r, include=FALSE}
+# setwd("C:/Users/sofie/OneDrive/Skrivebord")
+# ggsave(filename = "ClusteringComparisonCellType.png", width = 16, height = 12)
+```
+
+
+```{r, fig.width=16, fig.height=12}
+scVI_soup <-
+  (
+    kmeans_ad_X_scVI_tSNE + labs(title = "scVI, t-SNE") + ylab("Kmeans") + ylab_theme |
+      kmeans_ad_X_scVI_UMAP + labs(title = "scVI, UMAP") |
+      kmeans_ad_X_scVI_corrected_tSNE + labs(title = "Batch Corrected scVI, t-SNE")|
+      kmeans_ad_X_scVI_corrected_UMAP + labs(title = "Batch Corrected scVI, UMAP")
+  ) /
+  (
+    hierarchical_ad_X_scVI_tSNE + ylab("Hierarchical") + ylab_theme + remove_title |
+      hierarchical_ad_X_scVI_UMAP + remove_title |
+      hierarchical_ad_X_scVI_corrected_tSNE + remove_title |
+      hierarchical_ad_X_scVI_corrected_UMAP + remove_title 
+  ) /
+  (
+    cellType_ad_X_scVI_tSNE + ylab("True Cell Type Clustering") + ylab_theme + remove_title |
+      cellType_ad_X_scVI_UMAP + remove_title |
+      cellType_ad_X_scVI_corrected_tSNE + remove_title |
+      cellType_ad_X_scVI_corrected_UMAP+ remove_title )
+  
+
+wrap_elements(scVI_soup) +
+  labs(tag = "Clustering Algorithm") +
+  theme(
+    plot.tag.position = "left",
+    plot.tag = element_text(
+      size = 25,
+      hjust = 0.5,
+      face = "bold",
+      angle = 90, 
+      vjust = 2
+    )
+  ) +
+  plot_annotation(title = "scVI Method",
+                  theme = theme(plot.title = element_text(
+                    size = 25, hjust = 0.5, face = "bold"
+                  )))
+setwd("C:/Users/sofie/OneDrive/Skrivebord")
+ggsave(filename = "scVIcomparison.png", width = 16, height = 12)
+```
+
+
+```{r, include=FALSE}
+# setwd("C:/Users/sofie/OneDrive/Skrivebord")
+# ggsave(filename = "UMAP_celltype.png", width = 6, height = 5)
+```
+
+
+## Viral Load
+
+For each dimensional reduction methods we visualize how viral load distributes across the embedding.
+
+```{r}
+for (jdx in 1:m) {
+  name <- unlist(objects[jdx])
+  ad <- get(name)
+  
+ # create viral Load plot
+  title = paste(c("Viral Load", methods[jdx]), collapse = " ") # setup title
+  
+  p <- as.data.frame(ad$obsm) %>%
+    add_column("viralLoad" = ad$obs$viralLoad) %>% 
+    arrange(viralLoad) %>% 
+  ggplot(aes(x = coordinates.1,  y = coordinates.2,  color = viralLoad )) +
+  geom_point() +
+  theme +
+  labs(title = title, color = "Viral Load") + 
+  scale_color_gradient(low="blue", high="red")
+  
+  # save plot as variable
+  p_name <- paste("viralLoad", name, sep = "_") # create name for plot
+  assign(p_name, p) # assign name to variable
+}
+```
+
+Viral load is visualized by a gradient, with blue having a viral load of zero (uninfected) and red being max viral load. 
+```{r,  fig.width=16,fig.height=10}
+
+legend_theme = theme(
+  legend.position = "right",
+  legend.key.size = unit(1.2, 'cm'),
+  legend.title = element_text(size = 16),
+  legend.text = element_text(size = 14)
+  
+)
+ViralLoadSoup <- (
+  viralLoad_ad_X_pca + labs(title = "PCA") |
+    viralLoad_ad_X_PCA_tSNE + labs(title = "t-SNE") |
+    viralLoad_ad_X_PCA_UMAP + labs(title = "UMAP") |
+    viralLoad_ad_X_scVI_UMAP + labs(title = "scVI, UMAP")
+) /
+  (
+    viralLoad_ad_X_scVI_tSNE + labs(title = "scVI, t-SNE") |
+      viralLoad_ad_X_scVI_corrected_UMAP + labs(title = "Batch Corrected scVI, UMAP")  |
+      viralLoad_ad_X_scVI_corrected_tSNE + labs(title = "Batch Corrected scVI, t-SNE") + legend_theme|
+      guide_area() | plot_layout(guides = 'collect')
+  )
+
+ViralLoadSoup + plot_annotation(title = "Viral Load Structure on Dimensionality Reduction Methods",
+                                theme = theme(plot.title = element_text(
+                                  size = 25, hjust = 0.5, face = "bold"
+                                )))
+
+
+```
+
+```{r, include=FALSE}
+setwd("C:/Users/sofie/OneDrive/Skrivebord")
+# ggsave(filename = "MethodComparisonViralLoad.png", width = 16, height = 10)
+```
+
+
+## Batch Correction scVI
+
+For the scVI model we visualize the distribution of patientID in the low dimensional embedding to see how dominant patient attributes affect clustering, and how the distribution looks after batch correcting for patient.
+```{r}
+
+for (jdx in 1:m) {
+  name <- unlist(objects[jdx])
+  ad <- get(name)
+  
+ # create viral Load plot
+  title = paste(c("PatientID", methods[jdx]), collapse = " ") # setup title
+  
+  p <- as.data.frame(ad$obsm) %>%
+  ggplot(aes(x = coordinates.1,  y = coordinates.2,  color = ad$obs$PatientID )) +
+  geom_point() +
+  theme +
+  labs(title = title) 
+  
+  # save plot as variable
+  p_name <- paste("PatientID", name, sep = "_") # create name for plot
+  assign(p_name, p) # assign name to variable
+}
+```
+
+Each color represents a different patient.
+```{r,  fig.width=16,fig.height=16}
+(PatientID_ad_X_scVI_tSNE | PatientID_ad_X_scVI_UMAP) /
+  (PatientID_ad_X_scVI_corrected_tSNE | PatientID_ad_X_scVI_corrected_UMAP)
+```
+
+
+```{r, fig.width=16, fig.height=12}
+(kmeans_ad_X_scVI_tSNE | hierarchical_ad_X_scVI_tSNE | cellType_ad_X_scVI_tSNE) /
+   (kmeans_ad_X_scVI_UMAP | hierarchical_ad_X_scVI_UMAP | cellType_ad_X_scVI_UMAP  )
+
+```
+
